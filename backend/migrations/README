@@ -1,0 +1,7 @@
+Alembic migration environment for the application database.
+
+Create a revision from the backend directory:
+  alembic revision --autogenerate -m "describe change"
+
+Apply all revisions:
+  alembic upgrade head
