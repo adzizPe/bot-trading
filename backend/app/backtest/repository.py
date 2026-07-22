@@ -34,9 +34,11 @@ class BacktestRepository:
             source=configuration["source"],
             strategy_name=configuration["strategy_name"],
             status="PENDING",
+            processed_candles=0,
+            total_candles=0,
             progress_percent=0.0,
-            processed_bars=0,
-            total_bars=0,
+            current_time=None,
+            estimated_remaining_seconds=None,
             cancel_requested=False,
             error_message=None,
             created_at=now,
@@ -71,10 +73,14 @@ class BacktestRepository:
             result = self._serialize(row)
             result["configuration"] = settings.configuration if settings else {}
             result["symbol_specification"] = settings.symbol_specification if settings else None
+            report = await session.get(BacktestReport, backtest_id)
+            result["statistics"] = (
+                report.report.get("statistics") if report is not None else None
+            )
             return result
 
     async def mark_running(
-        self, backtest_id: str, total_bars: int, symbol_specification: dict[str, Any]
+        self, backtest_id: str, total_candles: int, symbol_specification: dict[str, Any]
     ) -> None:
         async with self._session_factory() as session:
             row = await self._required(session, backtest_id)
@@ -82,7 +88,9 @@ class BacktestRepository:
                 return
             now = datetime.now(timezone.utc)
             row.status = "RUNNING"
-            row.total_bars = total_bars
+            row.total_candles = total_candles
+            row.current_time = None
+            row.estimated_remaining_seconds = None
             row.started_at = now
             row.updated_at = now
             settings = await session.get(BacktestSettings, backtest_id)
@@ -90,15 +98,33 @@ class BacktestRepository:
                 settings.symbol_specification = symbol_specification
             await session.commit()
 
-    async def update_progress(self, backtest_id: str, processed: int, total: int) -> None:
+    async def update_progress(
+        self,
+        backtest_id: str,
+        processed: int,
+        total: int,
+        current_time: datetime,
+    ) -> None:
         async with self._session_factory() as session:
             row = await self._required(session, backtest_id)
             if row.status != "RUNNING":
                 return
-            row.processed_bars = processed
-            row.total_bars = total
+            now = datetime.now(timezone.utc)
+            row.processed_candles = processed
+            row.total_candles = total
             row.progress_percent = round(processed * 100 / total, 6) if total else 100.0
-            row.updated_at = datetime.now(timezone.utc)
+            row.current_time = current_time
+            if processed > 0 and row.started_at is not None:
+                started = row.started_at
+                if started.tzinfo is None or started.utcoffset() is None:
+                    started = started.replace(tzinfo=timezone.utc)
+                elapsed = max((now - started.astimezone(timezone.utc)).total_seconds(), 0.0)
+                row.estimated_remaining_seconds = max(
+                    elapsed / processed * (total - processed), 0.0
+                )
+            else:
+                row.estimated_remaining_seconds = None
+            row.updated_at = now
             await session.commit()
 
     async def request_cancel(self, backtest_id: str) -> dict[str, Any]:
@@ -133,16 +159,19 @@ class BacktestRepository:
             raise BacktestStateError(f"invalid terminal status: {status}")
         async with self._session_factory() as session:
             row = await self._required(session, backtest_id)
+            if status == "COMPLETED" and row.cancel_requested:
+                status = "CANCELLED"
             now = datetime.now(timezone.utc)
             row.status = status
             row.error_message = error
             row.completed_at = now
             row.updated_at = now
             if processed is not None:
-                row.processed_bars = processed
+                row.processed_candles = processed
+            row.estimated_remaining_seconds = 0.0 if status == "COMPLETED" else None
             if status == "COMPLETED":
                 row.progress_percent = 100.0
-                row.processed_bars = row.total_bars
+                row.processed_candles = row.total_candles
             await session.commit()
 
     async def add_event(

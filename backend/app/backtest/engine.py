@@ -19,11 +19,13 @@ from app.backtest.strategy import BacktestStrategyRunner
 from app.backtest.types import BacktestCandle, BacktestConfig, deterministic_id
 from app.config.settings import Settings
 from app.mt5.manager import MT5ConnectionManager
+from app.paper.pnl import PaperPnLCalculator
 
 CSV_EXPORT_COLUMNS = (
-    "trade_id", "symbol", "direction", "volume", "entry_price", "exit_price",
-    "stop_loss", "take_profit", "gross_pnl", "commission", "swap", "net_pnl",
-    "opened_at", "closed_at", "exit_reason",
+    "trade_id", "direction", "entry_time", "exit_time", "entry_price",
+    "exit_price", "stop_loss", "take_profit", "volume",
+    "gross_profit_loss", "commission", "swap", "net_profit_loss",
+    "close_reason", "signal_id", "trade_plan_id",
 )
 
 
@@ -40,6 +42,7 @@ class BacktestEngine:
         self.manager = manager
         self.settings = settings
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._cancel_requests: set[str] = set()
 
     @property
     def active_tasks(self) -> dict[str, asyncio.Task[None]]:
@@ -50,14 +53,20 @@ class BacktestEngine:
         identifier = job["backtest_id"]
         task = asyncio.create_task(self.run(identifier, configuration))
         self._tasks[identifier] = task
-        task.add_done_callback(lambda _: self._tasks.pop(identifier, None))
+        task.add_done_callback(lambda _: self._forget(identifier))
         return job
 
+    def _forget(self, backtest_id: str) -> None:
+        self._tasks.pop(backtest_id, None)
+        self._cancel_requests.discard(backtest_id)
+
     async def cancel(self, backtest_id: str) -> dict[str, Any]:
+        self._cancel_requests.add(backtest_id)
         return await self.repository.request_cancel(backtest_id)
 
     async def shutdown(self) -> None:
         identifiers = list(self._tasks)
+        self._cancel_requests.update(identifiers)
         for identifier in identifiers:
             await self.repository.request_cancel(identifier)
         if self._tasks:
@@ -66,7 +75,10 @@ class BacktestEngine:
     async def run(self, backtest_id: str, configuration: dict[str, Any]) -> None:
         processed = 0
         try:
-            if await self.repository.cancel_requested(backtest_id):
+            if (
+                backtest_id in self._cancel_requests
+                or await self.repository.cancel_requested(backtest_id)
+            ):
                 return
             historical, spreads, warnings, specification = await self._historical(configuration)
             candles = historical.candles("M5")
@@ -75,7 +87,10 @@ class BacktestEngine:
                 await self.repository.add_event(
                     backtest_id, "WARNING", "HISTORICAL_GAP", warning
                 )
-            if await self.repository.cancel_requested(backtest_id):
+            if (
+                backtest_id in self._cancel_requests
+                or await self.repository.cancel_requested(backtest_id)
+            ):
                 await self.repository.finish(backtest_id, "CANCELLED")
                 return
             result = await self._simulate(
@@ -93,7 +108,9 @@ class BacktestEngine:
             )
             status = (
                 "CANCELLED"
-                if result["cancelled"] or await self.repository.cancel_requested(backtest_id)
+                if result["cancelled"]
+                or backtest_id in self._cancel_requests
+                or await self.repository.cancel_requested(backtest_id)
                 else "COMPLETED"
             )
             await self.repository.finish(backtest_id, status, processed=processed)
@@ -122,7 +139,10 @@ class BacktestEngine:
         spreads: dict[datetime, float] = {}
         warnings: list[str] = []
         if configuration["source"] == "CSV":
-            rows = self._csv_rows(configuration["csv_path"])
+            start = self._instant(configuration["start_date"], end=False)
+            end = self._instant(configuration["end_date"], end=True)
+            all_rows = self._csv_rows(configuration["csv_path"])
+            rows = self._closed_rows(all_rows, "M5", start, end)
             candles = service.load(rows, "M5", validate_gaps=False)
             spreads = self._spread_map(rows, "M5")
             warnings.extend(self._gap_warnings(candles, "M5"))
@@ -135,7 +155,9 @@ class BacktestEngine:
                 _, _, rates = await self.manager.market_rates(
                     configuration["symbol"], timeframe, start, end, 1_000_000
                 )
-                rows = self._rate_rows(rates)
+                rows = self._closed_rows(
+                    self._rate_rows(rates), timeframe, start, end
+                )
                 candles = service.load(rows, timeframe, validate_gaps=False)
                 warnings.extend(self._gap_warnings(candles, timeframe))
                 if timeframe == "M5":
@@ -159,11 +181,15 @@ class BacktestEngine:
         domain_config = self._domain_config(configuration, specification)
         risk = BacktestRiskManager(domain_config)
         positions = BacktestPositionManager(BacktestExecutionSimulator(domain_config))
-        analysis_overrides = dict(configuration.get("settings") or {})
+        analysis_overrides = dict(configuration.get("strategy_settings") or {})
         analysis_overrides["strategy_name"] = configuration["strategy_name"]
         analysis = AnalysisConfig.from_settings(self.settings, analysis_overrides)
-        strategy = BacktestStrategyRunner(historical, analysis_config=analysis)
+        strategy = BacktestStrategyRunner(
+            historical, analysis_config=analysis, symbol=configuration["symbol"]
+        )
         pending: list[dict[str, Any]] = []
+        entry_reasons: list[dict[str, Any]] = []
+        rejection_reasons: list[dict[str, Any]] = []
         all_positions: dict[str, dict[str, Any]] = {}
         trades: list[dict[str, Any]] = []
         snapshots: list[dict[str, Any]] = []
@@ -172,14 +198,52 @@ class BacktestEngine:
         processed = 0
 
         for index, candle in enumerate(candles):
-            if await self.repository.cancel_requested(backtest_id):
+            if (
+                backtest_id in self._cancel_requests
+                or await self.repository.cancel_requested(backtest_id)
+            ):
                 cancelled = True
                 break
             current = self._with_spread(domain_config, configuration, spreads, candle)
             positions.execution.config = current
-            for plan in pending:
-                opened = positions.open(plan, candle)
-                all_positions[opened["position_id"]] = dict(opened)
+            for signal in pending:
+                try:
+                    if candle.timestamp != signal["decision_time"]:
+                        raise BacktestRiskRejected(
+                            "Immediate next M5 entry candle is missing"
+                        )
+                    entry_price = positions.execution.executable_entry_price(
+                        signal["direction"], candle
+                    )
+                    plan = risk.create_trade_plan(
+                        signal,
+                        entry_price=entry_price,
+                        atr=signal["atr"],
+                        decision_time=signal["decision_time"],
+                    )
+                    opened = positions.open(plan, candle)
+                    all_positions[opened["position_id"]] = dict(opened)
+                    reason = {
+                        "signal_id": signal["signal_id"],
+                        "trade_plan_id": plan["trade_plan_id"],
+                        "reasons": list(signal.get("reasons") or []),
+                    }
+                    entry_reasons.append(reason)
+                    await self.repository.add_event(
+                        backtest_id, "INFO", "ENTRY_APPROVED",
+                        "Trade entry approved", reason,
+                    )
+                except BacktestRiskRejected as error:
+                    rejection = {
+                        "source": "RISK",
+                        "signal_id": signal.get("signal_id"),
+                        "reasons": str(error).split("; "),
+                    }
+                    rejection_reasons.append(rejection)
+                    await self.repository.add_event(
+                        backtest_id, "INFO", "RISK_REJECTION",
+                        str(error), rejection,
+                    )
             pending = []
             for trade in positions.process_bar(candle):
                 self._apply_swap(trade, configuration)
@@ -188,9 +252,13 @@ class BacktestEngine:
                 all_positions[trade["position_id"]] = dict(trade)
             floating = positions.floating_pnl(candle)
             equity = risk.state_manager.mark_to_market(floating)
-            snapshots.append(self._snapshot(risk.state.balance, equity, floating, candle))
+            snapshots.append(self._snapshot(
+                risk.state.balance, equity, floating, risk.state.peak_equity, candle
+            ))
             processed = index + 1
-            await self.repository.update_progress(backtest_id, processed, len(candles))
+            await self.repository.update_progress(
+                backtest_id, processed, len(candles), candle.close_time
+            )
 
             if index + 1 < len(candles) and self._in_session(
                 candle.close_time, configuration.get("trading_sessions") or []
@@ -201,17 +269,31 @@ class BacktestEngine:
                         spread_points=float(current.spread_points),
                     )
                     if signal.get("direction") in {"BUY", "SELL"}:
-                        next_candle = strategy.next_entry_candle(candle.close_time)
-                        pending.append(risk.create_trade_plan(
-                            signal,
-                            entry_price=next_candle.open,
-                            atr=signal["atr"],
-                            decision_time=candle.close_time,
-                        ))
-                except BacktestRiskRejected:
-                    pass
+                        pending.append(signal)
+                    elif signal.get("rejection_reasons"):
+                        rejection = {
+                            "source": "STRATEGY",
+                            "signal_id": signal.get("signal_id"),
+                            "reasons": list(signal["rejection_reasons"]),
+                        }
+                        rejection_reasons.append(rejection)
+                        await self.repository.add_event(
+                            backtest_id, "INFO", "STRATEGY_REJECTION",
+                            "Strategy rules did not produce an entry", rejection,
+                        )
                 except (AnalysisError, IndexError, TypeError, ValueError) as error:
-                    warning_set.add(f"Strategy skipped insufficient/invalid data: {error}")
+                    warning = f"Strategy skipped insufficient/invalid data: {error}"
+                    warning_set.add(warning)
+                    rejection = {
+                        "source": "STRATEGY",
+                        "signal_id": None,
+                        "reasons": [str(error)],
+                    }
+                    rejection_reasons.append(rejection)
+                    await self.repository.add_event(
+                        backtest_id, "WARNING", "STRATEGY_REJECTION",
+                        warning, rejection,
+                    )
             await asyncio.sleep(0)
 
         if positions.positions and configuration["close_open_positions_at_end"]:
@@ -225,7 +307,11 @@ class BacktestEngine:
             equity = risk.state_manager.mark_to_market(floating)
             if snapshots:
                 snapshots[-1] = self._snapshot(
-                    risk.state.balance, equity, floating, final_candle
+                    risk.state.balance,
+                    equity,
+                    floating,
+                    risk.state.peak_equity,
+                    final_candle,
                 )
 
         report = BacktestReportService().generate(
@@ -236,13 +322,21 @@ class BacktestEngine:
                 "source": configuration["source"],
                 "strategy_name": configuration["strategy_name"],
                 "same_bar_policy": configuration["same_bar_policy"],
+                "configuration": {
+                    key: value for key, value in configuration.items()
+                    if key != "csv_path"
+                },
                 "symbol_specification": specification,
                 "symbol_specification_assumption": (
                     "Current MT5 demo symbol specification is applied to the historical period"
                 ),
             },
+            entry_reasons=entry_reasons,
+            rejection_reasons=rejection_reasons,
+            warnings=warning_set,
+            equity_points=snapshots,
         )
-        report["warnings"] = sorted(warning_set)
+        warning_set.update(report["warnings"])
         return {
             "processed": processed,
             "cancelled": cancelled,
@@ -265,10 +359,12 @@ class BacktestEngine:
             initial_balance=configuration["initial_balance"],
             point=specification["point"],
             spread_points=configuration["fixed_spread_points"],
-            slippage_points=configuration["slippage"],
+            slippage_points=configuration["slippage_points"],
             tick_size=specification["trade_tick_size"],
             tick_value=specification["trade_tick_value"],
-            commission_per_lot=configuration["commission"],
+            commission_per_lot=configuration["commission_per_lot"],
+            swap_long_per_lot=configuration["swap_long_per_lot"],
+            swap_short_per_lot=configuration["swap_short_per_lot"],
             risk_per_trade_percent=configuration["risk_per_trade_percent"],
             stop_atr_multiplier=risk.get("atr_multiplier", self.settings.risk_atr_multiplier),
             target_risk_reward=target_rr,
@@ -309,7 +405,14 @@ class BacktestEngine:
 
     @staticmethod
     def _apply_swap(trade: dict[str, Any], configuration: dict[str, Any]) -> None:
-        swap = Decimal(str(configuration["swap"])) * Decimal(str(trade["volume"]))
+        swap = PaperPnLCalculator.swap(
+            trade["direction"],
+            trade["opened_at"],
+            trade["closed_at"],
+            trade["volume"],
+            configuration["swap_long_per_lot"],
+            configuration["swap_short_per_lot"],
+        )
         trade["swap"] = swap
         trade["net_pnl"] = Decimal(str(trade["net_pnl"])) + swap
 
@@ -318,6 +421,7 @@ class BacktestEngine:
         balance: Decimal,
         equity: Decimal,
         floating: Decimal,
+        peak_equity: Decimal,
         candle: BacktestCandle,
     ) -> dict[str, Any]:
         return {
@@ -326,7 +430,7 @@ class BacktestEngine:
             "balance": float(balance),
             "equity": float(equity),
             "floating_pnl": float(floating),
-            "drawdown": float(max(balance - equity, Decimal("0"))),
+            "drawdown": float(max(peak_equity - equity, Decimal("0"))),
         }
 
     @staticmethod
@@ -334,6 +438,7 @@ class BacktestEngine:
         return {
             "position_id": item["position_id"],
             "signal_id": item.get("signal_id"),
+            "trade_plan_id": item["trade_plan_id"],
             "symbol": item["symbol"],
             "direction": item["direction"],
             "volume": float(item["volume"]),
@@ -355,6 +460,7 @@ class BacktestEngine:
             "trade_id": item["trade_id"],
             "position_id": item["position_id"],
             "signal_id": item.get("signal_id"),
+            "trade_plan_id": item["trade_plan_id"],
             "symbol": item["symbol"],
             "direction": item["direction"],
             "volume": float(item["volume"]),
@@ -388,8 +494,10 @@ class BacktestEngine:
     @staticmethod
     def _instant(value: str | date | datetime, *, end: bool) -> datetime:
         if isinstance(value, str):
-            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-            value = parsed
+            if len(value) == 10 and "T" not in value:
+                value = date.fromisoformat(value)
+            else:
+                value = datetime.fromisoformat(value.replace("Z", "+00:00"))
         if isinstance(value, datetime):
             return value.replace(tzinfo=value.tzinfo or timezone.utc).astimezone(timezone.utc)
         return datetime.combine(value, time.max if end else time.min, timezone.utc)
@@ -432,6 +540,23 @@ class BacktestEngine:
             row.setdefault("volume", row.get("tick_volume", 0))
             rows.append(row)
         return rows
+
+    @staticmethod
+    def _closed_rows(
+        rows: list[dict[str, Any]],
+        timeframe: str,
+        start: datetime,
+        end: datetime,
+        *,
+        now: datetime | None = None,
+    ) -> list[dict[str, Any]]:
+        cutoff = min(end, now or datetime.now(timezone.utc))
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            candle = HistoricalDataService._candle(row, timeframe)
+            if start <= candle.timestamp and candle.close_time <= cutoff:
+                result.append(row)
+        return result
 
     @staticmethod
     def _spread_map(rows: list[dict[str, Any]], timeframe: str) -> dict[datetime, float]:

@@ -1,7 +1,10 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import (
+    Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database.base import Base
@@ -20,9 +23,11 @@ class Backtest(Base, DictModel):
     source: Mapped[str] = mapped_column(String(8), nullable=False)
     strategy_name: Mapped[str] = mapped_column(String(100), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    processed_candles: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_candles: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     progress_percent: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    processed_bars: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    total_bars: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    current_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    estimated_remaining_seconds: Mapped[float | None] = mapped_column(Float)
     cancel_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     error_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -50,6 +55,7 @@ class BacktestTrade(Base, DictModel):
     trade_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     position_id: Mapped[str] = mapped_column(String(36), nullable=False)
     signal_id: Mapped[str | None] = mapped_column(String(36))
+    trade_plan_id: Mapped[str] = mapped_column(String(36), nullable=False)
     symbol: Mapped[str] = mapped_column(String(32), nullable=False)
     direction: Mapped[str] = mapped_column(String(8), nullable=False)
     volume: Mapped[float] = mapped_column(Float, nullable=False)
@@ -74,6 +80,7 @@ class BacktestPosition(Base, DictModel):
     )
     position_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     signal_id: Mapped[str | None] = mapped_column(String(36))
+    trade_plan_id: Mapped[str] = mapped_column(String(36), nullable=False)
     symbol: Mapped[str] = mapped_column(String(32), nullable=False)
     direction: Mapped[str] = mapped_column(String(8), nullable=False)
     volume: Mapped[float] = mapped_column(Float, nullable=False)
@@ -103,10 +110,16 @@ class BacktestEquitySnapshot(Base, DictModel):
 
 class BacktestEvent(Base, DictModel):
     __tablename__ = "backtest_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "backtest_id", "sequence", name="uq_backtest_events_sequence"
+        ),
+    )
 
     event_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     backtest_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("backtests.backtest_id", ondelete="CASCADE"), nullable=False
+        String(36), ForeignKey("backtests.backtest_id", ondelete="CASCADE"),
+        nullable=False, index=True,
     )
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     level: Mapped[str] = mapped_column(String(16), nullable=False)

@@ -5,6 +5,7 @@ from typing import Any
 from app.backtest.exceptions import BacktestRiskRejected
 from app.backtest.types import BacktestConfig, BacktestState, deterministic_id, utc_datetime
 from app.risk.calculators import PositionSizeCalculator
+from app.risk.exceptions import RiskCalculationError
 from app.risk.types import RiskConfig, SymbolSpecification
 
 
@@ -141,10 +142,13 @@ class BacktestRiskManager:
             trade_stops_level=Decimal("0"),
             trade_freeze_level=Decimal("0"),
         )
-        sizing = PositionSizeCalculator().calculate(
-            self.state.balance, self.state.equity, distance,
-            risk_config, specification,
-        )
+        try:
+            sizing = PositionSizeCalculator().calculate(
+                self.state.balance, self.state.equity, distance,
+                risk_config, specification,
+            )
+        except RiskCalculationError as error:
+            raise BacktestRiskRejected(str(error)) from error
         self.approve(signal_id, decision_time)
         return {
             "trade_plan_id": deterministic_id("plan", signal_id, decision_time),
@@ -153,6 +157,7 @@ class BacktestRiskManager:
             "direction": direction,
             "decision_time": utc_datetime(decision_time),
             "entry_reference_price": entry,
+            "executable_entry_price": entry,
             "stop_loss": stop,
             "take_profit": target,
             "volume": Decimal(str(sizing["lot_size"])),

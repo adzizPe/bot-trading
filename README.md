@@ -1,31 +1,23 @@
 # XAU/USD Trading Bot
 
-Aplikasi web untuk pembelajaran, analisis, risk planning, dan simulasi paper trading XAU/USD menggunakan harga akun demo MetaTrader 5. **Milestone 6 hanya membuat transaksi di database aplikasi.** Tidak ada pengiriman order, pembukaan/penutupan posisi MT5, atau dukungan akun real.
+Aplikasi pembelajaran untuk market data, analisis, risk planning, paper trading, dan backtesting XAU/USD dengan akun **demo** MetaTrader 5. Milestone 7 hanya membaca data historis dan menyimpan simulasi di SQLite: tidak ada pengiriman order, perubahan posisi MT5, atau dukungan akun real.
 
-## Status Milestone 6
+## Status Milestone 7
 
-Tersedia:
+Tersedia seluruh fondasi Milestone 1–6 serta:
 
-- Seluruh market data, signal analysis, dan risk planning Milestone 1–5
-- Paper account dengan balance, equity, margin simulasi, floating dan realized PnL
-- Paper order, position, trade history, dan equity snapshots di SQLite
-- Entry BUY pada Ask dan SELL pada Bid; exit BUY pada Bid dan SELL pada Ask
-- Spread real-time, slippage, commission, dan swap yang dapat dikonfigurasi
-- Stop-loss/take-profit monitoring, manual close, dan emergency close
-- Break-even dan trailing-stop modular dengan audit log perubahan SL
-- Manual opening hanya dari trade plan `APPROVED`
-- Auto mode opt-in dengan dedup signal/trade plan dan batas posisi/risk lock
-- Scheduler explicit-start; engine selalu tidak aktif saat backend baru hidup
-- Statistik performa dan equity curve
-- Deployment native: Python virtual environment, Vite build, dan Nginx
+- Backtest modular: `BacktestEngine`, `HistoricalDataService`, `BacktestStrategyRunner`, `BacktestRiskManager`, `BacktestExecutionSimulator`, `BacktestPositionManager`, `BacktestPnLCalculator`, `BacktestStatisticsService`, `EquityCurveService`, `DrawdownCalculator`, `BacktestReportService`, dan `BacktestStateManager`.
+- Sumber candle historis MT5 read-only atau CSV; timeframe M1, M5, M15, M30, H1, H4, dan D1 tervalidasi.
+- Strategi awal H1/M15/M5 memakai komponen analysis/risk/PnL yang sama dengan paper trading, tanpa menulis ke tabel live.
+- Anti-look-ahead: hanya candle closed dengan close time tidak melewati decision time; entry baru dihitung pada open M5 berikutnya.
+- Simulasi spread, adverse slippage, commission, swap directional, SL/TP, dan kebijakan same-bar konservatif `SL_FIRST`.
+- Background job persisten dengan status `PENDING`, `RUNNING`, `COMPLETED`, `FAILED`, `CANCELLED`, progress, ETA, dan cooperative cancellation.
+- Laporan, equity/drawdown curve, audit event, daftar trade/rejection, dan export CSV.
+- Deployment tetap native: Python virtual environment, Vite build, Nginx, serta NSSM/PM2; tanpa Docker/container.
 
-Belum tersedia:
+Belum tersedia dan tidak termasuk Milestone 7: order execution MT5, posisi asli akun demo, akun real, optimasi strategi, machine learning, atau dashboard lengkap.
 
-- Order execution MT5 atau posisi asli pada akun demo
-- Akun real, backtesting, atau frontend dashboard lengkap
-- Deployment milestone lanjutan
-
-Backend tidak otomatis terhubung ke MT5 dan paper engine tidak otomatis `RUNNING`. Koneksi MT5 dan `POST /api/v1/paper/start` harus dipanggil secara eksplisit. Seluruh hasil paper tetap berada di SQLite.
+Backend tidak otomatis terhubung ke MT5, paper engine tidak otomatis `RUNNING`, dan backtest hanya dimulai melalui `POST /api/v1/backtests`. Semua hasil simulasi berada di SQLite.
 
 ## Struktur
 
@@ -34,24 +26,17 @@ Backend tidak otomatis terhubung ke MT5 dan paper engine tidak otomatis `RUNNING
 ├── backend/
 │   ├── app/
 │   │   ├── analysis/
+│   │   ├── backtest/
 │   │   ├── risk/
 │   │   ├── paper/
-│   │   ├── api/routes/{mt5,market,analysis,risk,paper}.py
-│   │   ├── config/
+│   │   ├── api/routes/{mt5,market,analysis,risk,paper,backtest}.py
 │   │   ├── database/models/
 │   │   ├── market_data/
 │   │   ├── mt5/
 │   │   └── schemas/
 │   ├── migrations/
-│   ├── tests/
-│   ├── alembic.ini
-│   ├── pytest.ini
-│   ├── requirements.txt
-│   └── requirements-dev.txt
+│   └── tests/
 ├── frontend/
-│   ├── src/
-│   ├── nginx.conf
-│   └── package.json
 ├── .env.example
 └── README.md
 ```
@@ -410,3 +395,137 @@ Service backend boleh otomatis hidup setelah restart, tetapi koneksi MT5 dan akt
 - `.env` diabaikan Git dan tidak boleh disalin ke frontend.
 - API saat ini untuk akses lokal/development; authentication dan HTTPS wajib ditambahkan sebelum akses publik.
 - Dokumentasi API dinonaktifkan saat `APP_ENV=production`.
+
+## Backtesting Milestone 7
+
+### Endpoint
+
+| Method | Endpoint                                       | Fungsi                                                      |
+| ------ | ---------------------------------------------- | ----------------------------------------------------------- |
+| POST   | `/api/v1/backtests`                            | Validasi konfigurasi dan antrekan background job (HTTP 202) |
+| GET    | `/api/v1/backtests`                            | Daftar run                                                  |
+| GET    | `/api/v1/backtests/{backtest_id}`              | Status, progress, konfigurasi, dan statistik                |
+| POST   | `/api/v1/backtests/{backtest_id}/cancel`       | Cooperative cancellation                                    |
+| GET    | `/api/v1/backtests/{backtest_id}/trades`       | Trade hasil simulasi                                        |
+| GET    | `/api/v1/backtests/{backtest_id}/equity-curve` | Balance, equity, floating PnL, drawdown                     |
+| GET    | `/api/v1/backtests/{backtest_id}/report`       | Laporan lengkap dan warning                                 |
+| GET    | `/api/v1/backtests/{backtest_id}/export.csv`   | Export trade CSV                                            |
+
+POST tidak menunggu seluruh simulasi. Pantau `processed_candles`, `total_candles`, `progress_percent`, `current_time`, dan `estimated_remaining_seconds` melalui endpoint detail. Background task hanya dibuat saat run dikirim dan dihentikan secara cooperative pada cancel atau shutdown backend.
+
+### Contoh konfigurasi
+
+```json
+{
+  "symbol": "XAUUSD",
+  "start_date": "2025-01-01",
+  "end_date": "2025-06-30",
+  "initial_balance": 10000,
+  "risk_per_trade_percent": 1,
+  "maximum_open_positions": 1,
+  "spread_mode": "FIXED",
+  "fixed_spread_points": 30,
+  "use_historical_spread": false,
+  "slippage_points": 0,
+  "commission_per_lot": 0,
+  "swap_long_per_lot": 0,
+  "swap_short_per_lot": 0,
+  "minimum_risk_reward": 1.5,
+  "trading_sessions": [],
+  "strategy_name": "EMA_RSI_ATR_MTF_V1",
+  "strategy_settings": {},
+  "risk_settings": {},
+  "close_open_positions_at_end": true,
+  "same_bar_policy": "SL_FIRST",
+  "source": "MT5",
+  "csv_path": null
+}
+```
+
+Untuk CSV, gunakan `source: "CSV"` dan isi `csv_path` server. Kolom inti adalah `timestamp,open,high,low,close`; `volume` dan `spread` opsional kecuali `spread_mode` adalah `HISTORICAL`. Timestamp wajib ISO 8601 bertimezone, unik, ascending, dan OHLC harus valid.
+
+### Aturan anti-bias dan asumsi
+
+- Decision dibuat setelah M5 close. H1/M15/M5 yang diberikan ke strategi memiliki `close_time <= decision_time`; window indikator dibatasi oleh `ANALYSIS_CANDLE_COUNT`.
+- Sinyal hanya diantrekan pada decision time. Harga open candle berikutnya belum dibaca sampai iterasi candle tersebut dimulai.
+- Candle aktif/future dibuang berdasarkan `open_time + duration <= min(end_date, current UTC time)`.
+- OHLC historis dianggap harga Bid. Ask adalah Bid ditambah spread. BUY masuk di Ask dan SELL masuk di Bid, lalu adverse slippage diterapkan.
+- Jika SL dan TP tersentuh pada candle yang sama, default `SL_FIRST`; `TP_FIRST` harus dipilih eksplisit dan dicatat dalam konfigurasi.
+- Duplicate candle ditolak. Gap tidak didedup atau disembunyikan: gap menjadi warning/event laporan.
+- Tick size/value, point, volume limits, dan stops level historis tidak tersedia dari MT5. Snapshot spesifikasi simbol akun demo saat run dimulai diterapkan ke seluruh periode dan dicatat sebagai asumsi laporan.
+- Strategi, indikator, position sizing, dan PnL mereuse komponen pure mode analysis/risk/paper. Backtest tidak menulis `signals`, `trade_plans`, paper account, atau paper positions.
+- Hasil deterministik untuk data dan konfigurasi yang sama, kecuali ID run dan timestamp lifecycle wall-clock.
+
+### Contoh ringkasan hasil
+
+```json
+{
+  "status": "COMPLETED",
+  "initial_balance": 10000,
+  "final_balance": 10042.5,
+  "net_profit": 42.5,
+  "total_return_percent": 0.425,
+  "total_trades": 4,
+  "winning_trades": 2,
+  "losing_trades": 2,
+  "win_rate": 50,
+  "gross_profit": 180,
+  "gross_loss": 137.5,
+  "profit_factor": 1.3091,
+  "expectancy": 10.625,
+  "average_win": 90,
+  "average_loss": -68.75,
+  "maximum_drawdown": 137.5,
+  "maximum_drawdown_percent": 1.36,
+  "consecutive_wins": 1,
+  "consecutive_losses": 1,
+  "average_risk_reward": 2,
+  "sharpe_ratio": 0.18
+}
+```
+
+Angka tersebut hanya ilustrasi format, bukan hasil akun atau rekomendasi trading. Run dengan kurang dari 30 trade diberi warning. Laporan selalu menyatakan bahwa performa masa lalu tidak menjamin hasil masa depan.
+
+Contoh equity curve:
+
+```json
+[
+  {
+    "timestamp": "2025-01-02T10:05:00Z",
+    "balance": 10000,
+    "equity": 10000,
+    "floating_pnl": 0,
+    "drawdown": 0
+  },
+  {
+    "timestamp": "2025-01-02T10:10:00Z",
+    "balance": 10000,
+    "equity": 9992.5,
+    "floating_pnl": -7.5,
+    "drawdown": 7.5
+  }
+]
+```
+
+Contoh CSV:
+
+```csv
+trade_id,direction,entry_time,exit_time,entry_price,exit_price,stop_loss,take_profit,volume,gross_profit_loss,commission,swap,net_profit_loss,close_reason,signal_id,trade_plan_id
+<trade-id>,BUY,2025-01-02T10:05:00+00:00,2025-01-02T11:20:00+00:00,2640.30,2643.30,2638.80,2643.30,0.10,30.00,0.00,0.00,30.00,TAKE_PROFIT,<signal-id>,<plan-id>
+```
+
+### Database dan verifikasi
+
+Alembic menambah tepat tujuh tabel: `backtests`, `backtest_settings`, `backtest_trades`, `backtest_positions`, `backtest_equity_snapshots`, `backtest_events`, dan `backtest_reports`.
+
+```powershell
+backend\.venv\Scripts\python.exe -m alembic -c backend\alembic.ini upgrade head
+backend\.venv\Scripts\python.exe -m ruff check backend\app backend\tests backend\migrations
+backend\.venv\Scripts\python.exe -m pytest -c backend\pytest.ini backend\tests -m "not integration"
+backend\.venv\Scripts\python.exe -m pytest -c backend\pytest.ini backend\tests -m integration
+npm run lint --prefix frontend
+npm run typecheck --prefix frontend
+npm run build --prefix frontend
+```
+
+Melalui Swagger: hubungkan MT5 demo dengan `/mt5/connect`, kirim konfigurasi ke `/backtests`, poll detail sampai terminal, lalu baca report/equity/CSV. Paper engine tidak perlu dijalankan. Adapter MT5 tetap read-only dan tidak menyediakan API pengiriman order.

@@ -30,6 +30,14 @@ class BacktestExecutionSimulator:
         ask = bid_value + self.config.spread_points * self.config.point
         return bid_value, ask
 
+    def executable_entry_price(
+        self, direction: Any, candle: BacktestCandle
+    ) -> Decimal:
+        bid, ask = self.quote(candle.open)
+        return self.pnl.entry_price(
+            direction, bid, ask, self.config.point, self.config.slippage_points
+        )
+
     def execute_entry(
         self,
         trade_plan: Mapping[str, Any],
@@ -38,13 +46,14 @@ class BacktestExecutionSimulator:
         raw_direction = trade_plan["direction"]
         direction = str(getattr(raw_direction, "value", raw_direction)).upper()
         decision_time = trade_plan.get("decision_time")
-        if decision_time is not None and candle.timestamp < utc_datetime(
+        if decision_time is not None and candle.timestamp != utc_datetime(
             decision_time, "decision_time"
         ):
-            raise BacktestValidationError("entry requires the next M5 candle open")
-        bid, ask = self.quote(candle.open)
-        entry = self.pnl.entry_price(
-            direction, bid, ask, self.config.point, self.config.slippage_points
+            raise BacktestValidationError("entry requires the immediate next M5 candle open")
+        entry = (
+            to_decimal(trade_plan["executable_entry_price"], "executable_entry_price")
+            if "executable_entry_price" in trade_plan
+            else self.executable_entry_price(direction, candle)
         )
         stop = to_decimal(trade_plan["stop_loss"], "stop_loss")
         target = to_decimal(trade_plan["take_profit"], "take_profit")
@@ -62,6 +71,7 @@ class BacktestExecutionSimulator:
             "symbol": trade_plan.get("symbol", "XAUUSD"),
             "direction": direction,
             "entry_price": entry,
+            "risk_amount": trade_plan.get("risk_amount", Decimal("0")),
             "volume": volume,
             "stop_loss": stop,
             "take_profit": target,

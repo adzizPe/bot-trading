@@ -284,6 +284,20 @@ def test_risk_plan_reuses_position_size_calculator() -> None:
     assert result["stop_loss"] == Decimal("98.5")
     assert result["take_profit"] == Decimal("103.0")
     assert result["risk_amount"] == Decimal("100.0")
+    actual_entry_manager = BacktestRiskManager(BacktestConfig(spread_points="2"))
+    plan = actual_entry_manager.create_trade_plan(
+        {"signal_id": "signal", "direction": "BUY", "symbol": "XAUUSD"},
+        entry_price="100.03",
+        atr="1",
+        decision_time=START,
+    )
+    assert plan["executable_entry_price"] == Decimal("100.03")
+    assert plan["stop_loss"] == Decimal("98.53")
+    simulator = BacktestExecutionSimulator(
+        BacktestConfig(point="0.01", spread_points="2", slippage_points="1")
+    )
+    position = simulator.execute_entry(plan, bar(0))
+    assert position["entry_price"] == Decimal("100.03")
 
 
 def test_daily_loss_limit_and_next_day_reset() -> None:
@@ -321,7 +335,7 @@ def test_equity_drawdown_statistics_and_report() -> None:
     assert drawdown.max_drawdown == Decimal("120")
     assert stats["total_trades"] == 3
     assert stats["net_profit"] == Decimal("0")
-    assert stats["max_consecutive_losses"] == 1
+    assert stats["consecutive_losses"] == 1
 
     report = BacktestReportService().generate(
         trades, "1000", metadata={"symbol": "XAUUSD"}
@@ -329,3 +343,95 @@ def test_equity_drawdown_statistics_and_report() -> None:
     assert report["metadata"] == {"symbol": "XAUUSD"}
     assert report["statistics"]["final_balance"] == 1000.0
     assert report["equity_curve"][0]["timestamp"].endswith("+00:00")
+
+
+def test_strategy_uses_trailing_candle_count_and_actual_symbol() -> None:
+    from types import SimpleNamespace
+
+    service = HistoricalDataService()
+    service.load(candles(12))
+    captured: dict[str, object] = {}
+
+    def strategy(data, decision_time):  # type: ignore[no-untyped-def]
+        captured["data"] = data
+        return {"direction": "HOLD"}
+
+    runner = BacktestStrategyRunner(
+        service,
+        analysis_config=SimpleNamespace(candle_count=2),
+        strategy=strategy,
+        symbol="EURUSD",
+    )
+    result = runner.evaluate(START + timedelta(hours=1))
+    data = captured["data"]
+    assert len(data["M5"]) == 2  # type: ignore[index]
+    assert len(data["M15"]) == 2  # type: ignore[index]
+    assert result["symbol"] == "EURUSD"
+
+
+def test_closed_row_filter_excludes_active_future_and_out_of_range() -> None:
+    from app.backtest.engine import BacktestEngine
+
+    rows = [candle(-5), candle(0), candle(5), candle(10)]
+    result = BacktestEngine._closed_rows(
+        rows,
+        "M5",
+        START,
+        START + timedelta(minutes=20),
+        now=START + timedelta(minutes=12),
+    )
+    assert [item["timestamp"] for item in result] == [
+        START,
+        START + timedelta(minutes=5),
+    ]
+
+
+def test_backtest_swap_uses_directional_rates_and_calendar_days() -> None:
+    from app.backtest.engine import BacktestEngine
+
+    base = {
+        "opened_at": START,
+        "closed_at": START + timedelta(days=2),
+        "volume": Decimal("2"),
+        "net_pnl": Decimal("10"),
+    }
+    configuration = {
+        "swap_long_per_lot": Decimal("-1"),
+        "swap_short_per_lot": Decimal("-3"),
+    }
+    long_trade = {**base, "direction": "BUY"}
+    short_trade = {**base, "direction": "SELL"}
+    BacktestEngine._apply_swap(long_trade, configuration)
+    BacktestEngine._apply_swap(short_trade, configuration)
+    assert long_trade["swap"] == Decimal("-4")
+    assert long_trade["net_pnl"] == Decimal("6")
+    assert short_trade["swap"] == Decimal("-12")
+    assert short_trade["net_pnl"] == Decimal("-2")
+
+
+def test_full_statistics_contract_is_numeric_except_nullable_sharpe() -> None:
+    trades = [{
+        "trade_id": "1",
+        "closed_at": START,
+        "net_pnl": Decimal("100"),
+        "entry_price": Decimal("100"),
+        "stop_loss": Decimal("99"),
+        "take_profit": Decimal("102"),
+    }]
+    stats = BacktestStatisticsService().calculate(trades, "1000")
+    required = {
+        "final_balance", "net_profit", "total_return_percent", "total_trades",
+        "winning_trades", "losing_trades", "win_rate", "gross_profit",
+        "gross_loss", "profit_factor", "expectancy", "average_win",
+        "average_loss", "maximum_drawdown", "maximum_drawdown_percent",
+        "consecutive_wins", "consecutive_losses", "average_risk_reward",
+        "sharpe_ratio",
+    }
+    assert set(stats) == required
+    assert stats["profit_factor"] == Decimal("0")
+    assert stats["average_risk_reward"] == Decimal("2")
+    assert stats["sharpe_ratio"] is None
+    report = BacktestReportService().generate(trades, "1000")
+    assert required == set(report["performance"])
+    assert report["warnings"]
+    assert "Past performance" in report["disclaimer"]

@@ -49,9 +49,11 @@ def request(source: str, csv_path: str | None = None) -> dict[str, Any]:
         "end_date": "2026-01-06", "initial_balance": 10000,
         "risk_per_trade_percent": 1, "maximum_open_positions": 1,
         "spread_mode": "FIXED", "fixed_spread_points": 2,
-        "use_historical_spread": False, "slippage": 0, "commission": 0,
-        "swap": 0, "minimum_risk_reward": 1.5, "trading_sessions": [],
-        "strategy_name": "EMA_RSI_ATR_MTF_V1", "settings": {},
+        "use_historical_spread": False, "slippage_points": 0,
+        "commission_per_lot": 0, "swap_long_per_lot": 0,
+        "swap_short_per_lot": 0, "minimum_risk_reward": 1.5,
+        "trading_sessions": [],
+        "strategy_name": "EMA_RSI_ATR_MTF_V1", "strategy_settings": {},
         "risk_settings": {}, "close_open_positions_at_end": True,
         "same_bar_policy": "SL_FIRST", "source": source, "csv_path": csv_path,
     }
@@ -72,7 +74,8 @@ async def test_submit_tracks_background_task_and_csv_completes(tmp_path: Path) -
     csv_path = tmp_path / "rates.csv"
     rows = ["timestamp,open,high,low,close,volume,spread"]
     for index in range(12):
-        timestamp = START + timedelta(minutes=index * 5)
+        gap_offset = 5 if index >= 6 else 0
+        timestamp = START + timedelta(minutes=index * 5 + gap_offset)
         rows.append(f"{timestamp.isoformat()},100,101,99,100,1,2")
     csv_path.write_text("\n".join(rows), encoding="utf-8")
     db, repository, manager, service = await harness()
@@ -84,7 +87,10 @@ async def test_submit_tracks_background_task_and_csv_completes(tmp_path: Path) -
     assert detail is not None
     assert detail["status"] == "COMPLETED", detail["error_message"]
     assert detail["progress_percent"] == 100
-    assert (await repository.report(job["backtest_id"]))["report"]["statistics"]["total_trades"] == 0  # type: ignore[index]
+    report = await repository.report(job["backtest_id"])
+    assert report is not None
+    assert report["report"]["statistics"]["total_trades"] == 0
+    assert any("M5 historical gap" in warning for warning in report["warnings"])
     assert manager.calls == []
     await db.dispose()
 
@@ -115,4 +121,56 @@ async def test_shutdown_requests_cooperative_cancellation(tmp_path: Path) -> Non
     detail = await repository.get(job["backtest_id"])
     assert detail is not None and detail["status"] == "CANCELLED"
     assert detail["cancel_requested"] is True
+    await db.dispose()
+
+
+@pytest.mark.asyncio
+async def test_engine_never_reads_future_open_during_decision(monkeypatch) -> None:
+    class GuardedRunner:
+        def __init__(self, historical, analysis_config=None, symbol="XAUUSD") -> None:  # type: ignore[no-untyped-def]
+            self.symbol = symbol
+
+        def evaluate(self, decision_time, *, spread_points=0):  # type: ignore[no-untyped-def]
+            return {
+                "signal_id": f"signal-{decision_time.isoformat()}",
+                "symbol": self.symbol,
+                "direction": "BUY",
+                "atr": 1,
+                "decision_time": decision_time,
+                "reasons": ["test entry"],
+            }
+
+        def next_entry_candle(self, decision_time):  # type: ignore[no-untyped-def]
+            raise AssertionError("future open was accessed during decision")
+
+    monkeypatch.setattr("app.backtest.engine.BacktestStrategyRunner", GuardedRunner)
+    db, repository, _, service = await harness()
+    configuration = request("MT5")
+    job = await repository.create(configuration)
+    await service.run(job["backtest_id"], configuration)
+    detail = await repository.get(job["backtest_id"])
+    assert detail is not None
+    assert detail["status"] == "COMPLETED", detail["error_message"]
+    events = await repository.events(job["backtest_id"])
+    assert any(item["event_type"] == "ENTRY_APPROVED" for item in events)
+    await db.dispose()
+
+
+@pytest.mark.asyncio
+async def test_progress_contract_uses_candles_current_time_and_eta() -> None:
+    db, repository, _, _ = await harness()
+    configuration = request("MT5")
+    job = await repository.create(configuration)
+    await repository.mark_running(job["backtest_id"], 4, {"name": "XAUUSD"})
+    current = START + timedelta(minutes=5)
+    await repository.update_progress(job["backtest_id"], 1, 4, current)
+    detail = await repository.get(job["backtest_id"])
+    assert detail is not None
+    assert detail["processed_candles"] == 1
+    assert detail["total_candles"] == 4
+    assert detail["progress_percent"] == 25
+    assert detail["current_time"] == current
+    assert detail["estimated_remaining_seconds"] is not None
+    assert "processed_bars" not in detail
+    assert "total_bars" not in detail
     await db.dispose()

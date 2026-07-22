@@ -42,6 +42,8 @@ class BacktestConfig:
     tick_size: Decimal = Decimal("0.01")
     tick_value: Decimal = Decimal("1")
     commission_per_lot: Decimal = Decimal("0")
+    swap_long_per_lot: Decimal = Decimal("0")
+    swap_short_per_lot: Decimal = Decimal("0")
     risk_per_trade_percent: Decimal = Decimal("1")
     stop_atr_multiplier: Decimal = Decimal("1.5")
     target_risk_reward: Decimal = Decimal("2")
@@ -60,6 +62,7 @@ class BacktestConfig:
         decimals = (
             "initial_balance", "point", "spread_points", "slippage_points",
             "tick_size", "tick_value", "commission_per_lot",
+            "swap_long_per_lot", "swap_short_per_lot",
             "risk_per_trade_percent", "stop_atr_multiplier",
             "target_risk_reward", "max_daily_loss_percent",
             "max_daily_drawdown_percent", "volume_min", "volume_max", "volume_step",

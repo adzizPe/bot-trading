@@ -24,13 +24,14 @@ class BacktestRequest(BaseModel):
     spread_mode: Literal["FIXED", "HISTORICAL"] = "FIXED"
     fixed_spread_points: float = Field(default=0, ge=0)
     use_historical_spread: bool = False
-    slippage: float = Field(default=0, ge=0)
-    commission: float = Field(default=0, ge=0)
-    swap: float = 0
+    slippage_points: float = Field(default=0, ge=0)
+    commission_per_lot: float = Field(default=0, ge=0)
+    swap_long_per_lot: float = 0
+    swap_short_per_lot: float = 0
     minimum_risk_reward: float = Field(default=1.5, gt=0)
     trading_sessions: list[TradingSession] = Field(default_factory=list)
     strategy_name: str = Field(default="EMA_RSI_ATR_MTF_V1", min_length=1, max_length=100)
-    settings: dict[str, Any] = Field(default_factory=dict)
+    strategy_settings: dict[str, Any] = Field(default_factory=dict)
     risk_settings: dict[str, Any] = Field(default_factory=dict)
     close_open_positions_at_end: bool = True
     same_bar_policy: Literal["SL_FIRST", "TP_FIRST"] = "SL_FIRST"
@@ -62,9 +63,11 @@ class BacktestSummary(BaseModel):
     source: str
     strategy_name: str
     status: Literal["PENDING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"]
+    processed_candles: int
+    total_candles: int
     progress_percent: float
-    processed_bars: int
-    total_bars: int
+    current_time: datetime | None
+    estimated_remaining_seconds: float | None
     cancel_requested: bool
     error_message: str | None
     created_at: datetime
@@ -76,6 +79,7 @@ class BacktestSummary(BaseModel):
 class BacktestDetail(BacktestSummary):
     configuration: dict[str, Any]
     symbol_specification: dict[str, Any] | None
+    statistics: dict[str, Any] | None = None
 
 
 class BacktestTradeResponse(BaseModel):
@@ -85,6 +89,7 @@ class BacktestTradeResponse(BaseModel):
     trade_id: str
     position_id: str
     signal_id: str | None
+    trade_plan_id: str
     symbol: str
     direction: str
     volume: float

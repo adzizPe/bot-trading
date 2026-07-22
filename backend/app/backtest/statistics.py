@@ -54,36 +54,63 @@ class BacktestStatisticsService:
             key=lambda item: (item["closed_at"], str(item.get("trade_id", ""))),
         )
         initial = Decimal(str(initial_balance))
-        wins = [Decimal(str(item["net_pnl"])) for item in items if Decimal(str(item["net_pnl"])) > 0]
-        losses = [Decimal(str(item["net_pnl"])) for item in items if Decimal(str(item["net_pnl"])) < 0]
-        net = sum(wins, Decimal("0")) + sum(losses, Decimal("0"))
+        pnl = [Decimal(str(item["net_pnl"])) for item in items]
+        wins = [value for value in pnl if value > 0]
+        losses = [value for value in pnl if value < 0]
+        net = sum(pnl, Decimal("0"))
         gross_profit = sum(wins, Decimal("0"))
         gross_loss = -sum(losses, Decimal("0"))
         curve = list(equity_curve or EquityCurveService().build(items, initial))
         drawdown = self.drawdown.calculate(curve)
         total = len(items)
+        risk_rewards = [self._risk_reward(item) for item in items]
+        risk_rewards = [value for value in risk_rewards if value is not None]
         return {
+            "final_balance": initial + net,
+            "net_profit": net,
+            "total_return_percent": net / initial * 100 if initial else Decimal("0"),
             "total_trades": total,
             "winning_trades": len(wins),
             "losing_trades": len(losses),
             "win_rate": Decimal(len(wins) * 100) / total if total else Decimal("0"),
             "gross_profit": gross_profit,
             "gross_loss": gross_loss,
-            "net_profit": net,
-            "initial_balance": initial,
-            "final_balance": initial + net,
-            "return_percent": net / initial * 100 if initial else Decimal("0"),
-            "profit_factor": gross_profit / gross_loss if gross_loss else None,
-            "average_trade": net / total if total else Decimal("0"),
+            "profit_factor": gross_profit / gross_loss if gross_loss else Decimal("0"),
             "expectancy": net / total if total else Decimal("0"),
-            "max_consecutive_wins": self._streak(items, positive=True),
-            "max_consecutive_losses": self._streak(items, positive=False),
-            "max_drawdown": drawdown.max_drawdown,
-            "max_drawdown_percent": drawdown.max_drawdown_percent,
-            "current_drawdown": drawdown.current_drawdown,
+            "average_win": sum(wins, Decimal("0")) / len(wins) if wins else Decimal("0"),
+            "average_loss": sum(losses, Decimal("0")) / len(losses) if losses else Decimal("0"),
+            "maximum_drawdown": drawdown.max_drawdown,
+            "maximum_drawdown_percent": drawdown.max_drawdown_percent,
+            "consecutive_wins": self._streak(items, positive=True),
+            "consecutive_losses": self._streak(items, positive=False),
+            "average_risk_reward": (
+                sum(risk_rewards, Decimal("0")) / len(risk_rewards)
+                if risk_rewards else Decimal("0")
+            ),
+            "sharpe_ratio": self._sharpe(pnl),
         }
 
     summarize = calculate
+
+    @staticmethod
+    def _risk_reward(item: Mapping[str, Any]) -> Decimal | None:
+        required = ("entry_price", "stop_loss", "take_profit")
+        if not all(name in item for name in required):
+            return None
+        entry = Decimal(str(item["entry_price"]))
+        risk = abs(entry - Decimal(str(item["stop_loss"])))
+        reward = abs(Decimal(str(item["take_profit"])) - entry)
+        return reward / risk if risk else Decimal("0")
+
+    @staticmethod
+    def _sharpe(values: list[Decimal]) -> Decimal | None:
+        if len(values) < 2:
+            return None
+        mean = sum(values, Decimal("0")) / len(values)
+        variance = sum((value - mean) ** 2 for value in values) / (len(values) - 1)
+        if variance <= 0:
+            return None
+        return mean / variance.sqrt() * Decimal(len(values)).sqrt()
 
     @staticmethod
     def _streak(items: list[Mapping[str, Any]], *, positive: bool) -> int:

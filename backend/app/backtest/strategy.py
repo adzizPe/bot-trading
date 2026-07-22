@@ -21,10 +21,12 @@ class BacktestStrategyRunner:
         historical: HistoricalDataService,
         analysis_config: Any | None = None,
         strategy: Callable[[dict[str, list[dict[str, Any]]], datetime], Any] | None = None,
+        symbol: str = "XAUUSD",
     ) -> None:
         self.historical = historical
         self.config = analysis_config
         self.strategy = strategy
+        self.symbol = symbol
         self._indicator = IndicatorService(
             MarketStructureDetector(), SupportResistanceDetector()
         )
@@ -38,7 +40,8 @@ class BacktestStrategyRunner:
         at = utc_datetime(decision_time, "decision_time")
         datasets: dict[str, list[dict[str, Any]]] = {}
         for timeframe in ("H1", "M15", "M5"):
-            candles = self.historical.slice_at(timeframe, at)
+            count = self.config.candle_count if self.config is not None else None
+            candles = self.historical.slice_at(timeframe, at, count=count)
             datasets[timeframe] = [candle.as_dict() for candle in candles]
         if not datasets["M5"] or datasets["M5"][-1]["close_time"] != at:
             raise LookAheadError("decision_time must be an M5 candle close time")
@@ -57,7 +60,7 @@ class BacktestStrategyRunner:
                 raise ValueError("analysis_config is required for the built-in strategy")
             indicators = {
                 timeframe: self._indicator.analyze(
-                    "XAUUSD", timeframe, candles, self.config
+                    self.symbol, timeframe, candles, self.config
                 )
                 for timeframe, candles in datasets.items()
             }
@@ -68,12 +71,13 @@ class BacktestStrategyRunner:
                 self.config.candle_close_location_min,
             )
             result = self._engine.analyze(
-                "XAUUSD", indicators, confirmation, spread_points, self.config
+                self.symbol, indicators, confirmation, spread_points, self.config
             )
+        result.setdefault("symbol", self.symbol)
         result["decision_time"] = at
         result["candle_time"] = datasets["M5"][-1]["timestamp"]
         result["signal_id"] = deterministic_id(
-            "signal", result.get("symbol", "XAUUSD"), at,
+            "signal", result.get("symbol", self.symbol), at,
             result.get("direction", "HOLD"),
         )
         return result

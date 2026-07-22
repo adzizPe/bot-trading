@@ -109,9 +109,26 @@ async def export_backtest_csv(
     writer = csv.DictWriter(output, fieldnames=CSV_EXPORT_COLUMNS, extrasaction="ignore")
     writer.writeheader()
     for trade in trades:
-        row = dict(trade)
-        for key in ("opened_at", "closed_at"):
-            value = row.get(key)
+        row = {
+            "trade_id": trade["trade_id"],
+            "direction": trade["direction"],
+            "entry_time": trade["opened_at"],
+            "exit_time": trade["closed_at"],
+            "entry_price": trade["entry_price"],
+            "exit_price": trade["exit_price"],
+            "stop_loss": trade["stop_loss"],
+            "take_profit": trade["take_profit"],
+            "volume": trade["volume"],
+            "gross_profit_loss": trade["gross_pnl"],
+            "commission": trade["commission"],
+            "swap": trade["swap"],
+            "net_profit_loss": trade["net_pnl"],
+            "close_reason": trade["exit_reason"],
+            "signal_id": trade.get("signal_id"),
+            "trade_plan_id": trade["trade_plan_id"],
+        }
+        for key in ("entry_time", "exit_time"):
+            value = row[key]
             row[key] = value.isoformat() if hasattr(value, "isoformat") else value
         writer.writerow(row)
     return Response(
