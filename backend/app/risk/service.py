@@ -155,6 +155,19 @@ class TradePlanService:
             raise RiskNotFoundError("Trade plan was not found")
         return plan
 
+    async def execution_context(self, trade_plan_id: str) -> dict[str, Any]:
+        """Return persisted plan/signal plus a fresh fail-closed risk decision."""
+        plan = await self.get_trade_plan(trade_plan_id)
+        signal = await self._signals.get_by_id(str(plan["signal_id"]))
+        if signal is None:
+            raise RiskNotFoundError("Trade plan signal was not found")
+        return {
+            "plan": plan,
+            "signal": signal,
+            "risk": await self.status(),
+            "settings": await self.get_settings(),
+        }
+
     async def _daily_state(
         self, now: datetime, account: dict[str, float]
     ) -> dict[str, Any]:

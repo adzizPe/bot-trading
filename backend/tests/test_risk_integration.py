@@ -34,4 +34,4 @@ def test_risk_api_with_demo_account() -> None:
         assert plan.status_code == 200
         assert plan.json()["status"] in {"APPROVED", "REJECTED"}
         assert api.post("/api/v1/mt5/disconnect").status_code == 200
-        assert not hasattr(manager, "order_send")
+        assert manager.order_send_calls == 0

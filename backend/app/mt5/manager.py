@@ -1,7 +1,12 @@
 import asyncio
 import logging
+import math
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Callable
+
+from app.demo.check import OrderCheckService
+from app.demo.types import normalize_price, normalize_volume
 
 from app.config.settings import Settings
 from app.mt5.exceptions import (
@@ -9,6 +14,8 @@ from app.mt5.exceptions import (
     MT5ConnectionError,
     MT5RealAccountRejected,
     MT5SymbolNotFound,
+    MT5TradeValidationError,
+    MT5OwnershipError,
 )
 from app.mt5.protocols import MT5ClientProtocol
 
@@ -25,7 +32,7 @@ class MT5ConnectionState(str, Enum):
 
 
 class MT5ConnectionManager:
-    """Serializes safe, read-only access to the process-global MT5 API."""
+    """Serializes demo-guarded access to the process-global MT5 API."""
 
     def __init__(self, client: MT5ClientProtocol, settings: Settings) -> None:
         self._client = client
@@ -37,6 +44,11 @@ class MT5ConnectionManager:
         self._last_error: str | None = None
         self._resolved_symbol: str | None = None
         self._connection_version = 0
+        self._order_send_calls = 0
+
+    @property
+    def order_send_calls(self) -> int:
+        return self._order_send_calls
 
     @property
     def connection_version(self) -> int:
@@ -269,6 +281,241 @@ class MT5ConnectionManager:
                     return {field: self._value(info, field, symbol if field == "name" else None) for field in fields}
             raise MT5SymbolNotFound("No supported XAU/USD symbol was found")
 
+    async def execute_market_order(
+        self, *, symbol: str, direction: str, volume: float, stop_loss: float,
+        take_profit: float, magic: int, comment: str, deviation: int,
+        maximum_spread_points: float = 300.0,
+        position_ticket: int | None = None,
+        risk_percent: float | None = None,
+    ) -> dict[str, Any]:
+        """Check and send once (or one explicit price retry) under the connection lock."""
+        async with self._lock:
+            if not self._settings.demo_execution_enabled:
+                raise MT5ConfigurationError("Demo trading is disabled")
+            if direction not in {"BUY", "SELL"}:
+                raise MT5TradeValidationError("Direction must be BUY or SELL")
+            if magic <= 0:
+                raise MT5TradeValidationError("Magic must be greater than zero")
+            if not 1 <= len(comment) <= 31:
+                raise MT5TradeValidationError("Comment must contain 1 to 31 characters")
+            if deviation < 0 or deviation > 1000:
+                raise MT5TradeValidationError("Deviation must be between 0 and 1000 points")
+            self._require_connected()
+            account = await self._active_demo_account()
+            await self._ensure_trade_permissions(account)
+            if position_ticket is not None:
+                position = await self._owned_position(position_ticket, magic)
+                broker_symbol = str(self._value(position, "symbol", ""))
+                if not broker_symbol:
+                    raise MT5TradeValidationError("Broker position symbol is unavailable")
+                actual_symbol, info = await self._resolve_symbol(broker_symbol)
+                actual_direction = self._client.position_direction(
+                    int(self._value(position, "type", -1))
+                )
+                if actual_direction != direction:
+                    raise MT5TradeValidationError("Local and broker position directions differ")
+                direction = "SELL" if direction == "BUY" else "BUY"
+                volume = float(self._value(position, "volume", 0))
+            else:
+                actual_symbol, info = await self._resolve_symbol(symbol)
+            if risk_percent is None or position_ticket is not None:
+                prepared_volume = normalize_volume(
+                    volume, self._value(info, "volume_min"),
+                    self._value(info, "volume_max"), self._value(info, "volume_step"),
+                )
+            else:
+                prepared_volume = volume
+            tick_size = self._value(info, "trade_tick_size") or self._value(info, "point")
+            digits = int(self._value(info, "digits", 0))
+            prepared_stop = (
+                0.0 if position_ticket is not None
+                else normalize_price(stop_loss, tick_size, digits)
+            )
+            prepared_target = (
+                0.0 if position_ticket is not None
+                else normalize_price(take_profit, tick_size, digits)
+            )
+            filling = self._client.filling_mode_from_symbol(
+                int(self._value(info, "filling_mode", 0))
+            )
+            last_request: dict[str, object] = {}
+            for attempt in range(2):
+                guarded_account, info, tick = await self._execution_guard(
+                    actual_symbol, maximum_spread_points
+                )
+                tick_size = self._value(info, "trade_tick_size") or self._value(info, "point")
+                digits = int(self._value(info, "digits", 0))
+                price = float(self._value(tick, "ask" if direction == "BUY" else "bid", 0))
+                prepared_price = normalize_price(price, tick_size, digits)
+                if risk_percent is not None and position_ticket is None:
+                    prepared_volume = self._risk_volume(
+                        guarded_account, info, prepared_price, prepared_stop, risk_percent
+                    )
+                self._validate_geometry(
+                    direction, prepared_price, prepared_stop, prepared_target, info,
+                    closing=position_ticket is not None,
+                )
+                last_request = {
+                    "action": self._client.trade_action_deal, "symbol": actual_symbol,
+                    "volume": prepared_volume, "type": self._client.order_type(direction),
+                    "price": prepared_price, "sl": prepared_stop, "tp": prepared_target,
+                    "deviation": deviation, "magic": magic, "comment": comment,
+                    "type_filling": filling,
+                }
+                if position_ticket is not None:
+                    last_request["position"] = position_ticket
+                else:
+                    margin = await self._vendor_call(
+                        self._client.order_calc_margin,
+                        self._client.order_type(direction), actual_symbol,
+                        prepared_volume, prepared_price,
+                        error_message="MT5 margin calculation failed",
+                    )
+                    self._validate_margin(margin, guarded_account)
+                await self._execution_guard(actual_symbol, maximum_spread_points)
+                check = await self._vendor_call(
+                    self._client.order_check, last_request,
+                    error_message="MT5 order check failed",
+                )
+                if check is None or not self._client.trade_check_accepted(
+                    int(self._value(check, "retcode", -1))
+                ):
+                    raise MT5TradeValidationError("Broker order_check rejected the request")
+                if position_ticket is None:
+                    check_margin = self._value(check, "margin")
+                    if margin is None and check_margin is None:
+                        raise MT5TradeValidationError(
+                            "Broker provided no margin validation"
+                        )
+                    self._validate_margin(check_margin, guarded_account)
+                await self._execution_guard(actual_symbol, maximum_spread_points)
+                result = await self._send_unknown_safe(last_request, actual_symbol)
+                if result["outcome"] != "RETRYABLE" or attempt == 1:
+                    if result["outcome"] == "RETRYABLE":
+                        result["outcome"] = "REJECTED"
+                        result["reconciliation_required"] = False
+                    result["attempts"] = attempt + 1
+                    result["sanitized_request"] = self._sanitized_trade_request(
+                        last_request
+                    )
+                    return result
+            return self._unknown_result(last_request, actual_symbol)
+
+    async def modify_position_stop(
+        self, *, position_ticket: int, stop_loss: float, magic: int,
+        comment: str, maximum_spread_points: float = 300.0,
+    ) -> dict[str, Any]:
+        async with self._lock:
+            if not self._settings.demo_execution_enabled:
+                raise MT5ConfigurationError("Demo trading is disabled")
+            if position_ticket <= 0:
+                raise MT5TradeValidationError("Position ticket must be greater than zero")
+            if magic <= 0:
+                raise MT5TradeValidationError("Magic must be greater than zero")
+            if not 1 <= len(comment) <= 31:
+                raise MT5TradeValidationError("Comment must contain 1 to 31 characters")
+            self._require_connected()
+            account = await self._active_demo_account()
+            await self._ensure_trade_permissions(account)
+            position = await self._owned_position(position_ticket, magic)
+            symbol = str(self._value(position, "symbol", ""))
+            if not symbol:
+                raise MT5TradeValidationError("Broker position symbol is unavailable")
+            actual_symbol, info = await self._resolve_symbol(symbol)
+            _, info, tick = await self._execution_guard(
+                actual_symbol, maximum_spread_points
+            )
+            direction = self._client.position_direction(int(self._value(position, "type", -1)))
+            current_stop = float(self._value(position, "sl", 0) or 0)
+            tick_size = self._value(info, "trade_tick_size") or self._value(info, "point")
+            normalized = normalize_price(stop_loss, tick_size, int(self._value(info, "digits", 0)))
+            market_price = float(self._value(tick, "bid" if direction == "BUY" else "ask", 0))
+            if current_stop and (
+                (direction == "BUY" and normalized <= current_stop)
+                or (direction == "SELL" and normalized >= current_stop)
+            ):
+                raise MT5TradeValidationError("Stop loss may only be tightened")
+            self._validate_stop_distance(direction, market_price, normalized, info)
+            request: dict[str, object] = {
+                "action": self._client.trade_action_sltp, "symbol": actual_symbol,
+                "position": position_ticket, "sl": normalized,
+                "tp": float(self._value(position, "tp", 0) or 0),
+                "magic": magic, "comment": comment,
+            }
+            await self._execution_guard(actual_symbol, maximum_spread_points)
+            check = await self._vendor_call(
+                self._client.order_check, request,
+                error_message="MT5 order check failed",
+            )
+            if check is None or not self._client.trade_check_accepted(
+                int(self._value(check, "retcode", -1))
+            ):
+                raise MT5TradeValidationError("Broker order_check rejected the request")
+            await self._execution_guard(actual_symbol, maximum_spread_points)
+            result = await self._send_unknown_safe(request, actual_symbol)
+            result["attempts"] = 1
+            result["stop_loss"] = normalized
+            return result
+
+    async def cancel_pending_order(
+        self, *, order_ticket: int, magic: int, comment: str,
+        maximum_spread_points: float = 300.0,
+    ) -> dict[str, Any]:
+        async with self._lock:
+            if not self._settings.demo_execution_enabled:
+                raise MT5ConfigurationError("Demo trading is disabled")
+            if order_ticket <= 0 or magic <= 0:
+                raise MT5TradeValidationError("Order ticket and magic must be positive")
+            self._require_connected()
+            order = await self._owned_order(order_ticket, magic)
+            symbol = str(self._value(order, "symbol", ""))
+            if not symbol:
+                raise MT5TradeValidationError("Broker order symbol is unavailable")
+            actual_symbol, _ = await self._resolve_symbol(symbol)
+            request: dict[str, object] = {
+                "action": self._client.trade_action_remove,
+                "order": order_ticket, "symbol": actual_symbol,
+                "magic": magic, "comment": comment,
+            }
+            await self._execution_guard(actual_symbol, maximum_spread_points)
+            check = await self._vendor_call(
+                self._client.order_check, request,
+                error_message="MT5 order check failed",
+            )
+            if check is None or not self._client.trade_check_accepted(
+                int(self._value(check, "retcode", -1))
+            ):
+                raise MT5TradeValidationError("Broker order_check rejected the request")
+            await self._execution_guard(actual_symbol, maximum_spread_points)
+            result = await self._send_unknown_safe(request, actual_symbol)
+            result["attempts"] = 1
+            return result
+
+    async def broker_snapshot(self, magic: int) -> dict[str, list[dict[str, Any]]]:
+        async with self._lock:
+            self._require_connected()
+            await self._active_demo_account()
+            positions_raw = await self._vendor_call(
+                self._client.positions_get, error_message="MT5 positions request failed"
+            ) or ()
+            orders_raw = await self._vendor_call(
+                self._client.orders_get, error_message="MT5 orders request failed"
+            ) or ()
+            start = datetime.now(timezone.utc) - timedelta(days=30)
+            history_orders_raw = await self._vendor_call(
+                self._client.history_orders_get, start, datetime.now(timezone.utc),
+                error_message="MT5 order history request failed",
+            ) or ()
+            deals_raw = await self._vendor_call(
+                self._client.history_deals_get, start, datetime.now(timezone.utc),
+                error_message="MT5 deal history request failed",
+            ) or ()
+            return {
+                "positions": [self._sanitize_position(item) for item in positions_raw if int(self._value(item, "magic", -1)) == magic],
+                "orders": [self._sanitize_order(item) for item in (*orders_raw, *history_orders_raw) if int(self._value(item, "magic", -1)) == magic],
+                "deals": [self._sanitize_deal(item) for item in deals_raw if int(self._value(item, "magic", -1)) == magic],
+            }
+
     async def _resolve_symbol(
         self, requested_symbol: str | None = None
     ) -> tuple[str, object]:
@@ -290,16 +537,155 @@ class MT5ConnectionManager:
                 )
                 if not selected:
                     continue
-                refreshed = await self._vendor_call(
-                    self._client.symbol_info,
-                    actual_symbol,
-                    error_message="MT5 symbol information failed",
-                )
-                if refreshed is not None:
-                    info = refreshed
+            refreshed = await self._vendor_call(
+                self._client.symbol_info,
+                actual_symbol,
+                error_message="MT5 symbol information failed",
+            )
+            if refreshed is not None:
+                info = refreshed
             self._resolved_symbol = actual_symbol
             return actual_symbol, info
         raise MT5SymbolNotFound("No supported XAU/USD symbol was found")
+
+    async def _ensure_trade_permissions(self, account: object) -> None:
+        if not bool(self._value(account, "trade_allowed", True)):
+            raise MT5TradeValidationError("Account trading is not allowed")
+        terminal = await self._vendor_call(
+            self._client.terminal_info, error_message="MT5 terminal information failed"
+        )
+        if terminal is None or not bool(self._value(terminal, "trade_allowed", False)):
+            raise MT5TradeValidationError("Terminal trading is not allowed")
+        if bool(self._value(terminal, "tradeapi_disabled", False)):
+            raise MT5TradeValidationError("Terminal API trading is disabled")
+
+    async def _execution_guard(
+        self, symbol: str, maximum_spread_points: float
+    ) -> tuple[object, object, object]:
+        if not self._settings.demo_execution_enabled:
+            raise MT5ConfigurationError("Demo trading is disabled")
+        if not math.isfinite(maximum_spread_points) or maximum_spread_points <= 0:
+            raise MT5TradeValidationError("Maximum spread must be positive")
+        self._require_connected()
+        account = await self._active_demo_account()
+        await self._ensure_trade_permissions(account)
+        actual_symbol, info = await self._resolve_symbol(symbol)
+        if actual_symbol != symbol:
+            raise MT5TradeValidationError("Broker symbol changed during execution guard")
+        tick = await self._vendor_call(
+            self._client.symbol_info_tick, actual_symbol,
+            error_message="MT5 tick request failed",
+        )
+        if tick is None:
+            raise MT5ConnectionError("MT5 tick data is unavailable")
+        point = float(self._value(info, "point", 0) or 0)
+        bid = float(self._value(tick, "bid", 0) or 0)
+        ask = float(self._value(tick, "ask", 0) or 0)
+        if point <= 0 or bid <= 0 or ask < bid:
+            raise MT5TradeValidationError("Broker symbol or tick is invalid")
+        if (ask - bid) / point > maximum_spread_points:
+            raise MT5TradeValidationError("Broker spread exceeds configured maximum")
+        return account, info, tick
+
+    def _risk_volume(
+        self, account: object, info: object, entry: float, stop: float,
+        risk_percent: float,
+    ) -> float:
+        if not math.isfinite(risk_percent) or not 0 < risk_percent <= 100:
+            raise MT5TradeValidationError("Risk percent is invalid")
+        balance = float(self._value(account, "balance", 0) or 0)
+        equity = float(self._value(account, "equity", 0) or 0)
+        base = equity if self._settings.risk_use_equity_for_risk else balance
+        tick_size = float(
+            self._value(info, "trade_tick_size") or self._value(info, "point") or 0
+        )
+        tick_value = float(self._value(info, "trade_tick_value", 0) or 0)
+        stop_distance = abs(entry - stop)
+        if base <= 0 or tick_size <= 0 or tick_value <= 0 or stop_distance <= 0:
+            raise MT5TradeValidationError("Fresh risk lot inputs are unavailable")
+        raw_volume = (base * risk_percent / 100) / (
+            (stop_distance / tick_size) * tick_value
+        )
+        return normalize_volume(
+            raw_volume, self._value(info, "volume_min"),
+            self._value(info, "volume_max"), self._value(info, "volume_step"),
+        )
+
+    @staticmethod
+    def _validate_margin(margin: object, account: object) -> None:
+        if margin is None:
+            return
+        required = float(margin)
+        available = float(getattr(account, "margin_free", 0) or 0)
+        if not math.isfinite(required) or required < 0 or required > available:
+            raise MT5TradeValidationError("Insufficient or invalid calculated margin")
+
+    async def _owned_order(self, ticket: int, magic: int) -> object:
+        orders = await self._vendor_call(
+            self._client.orders_get, ticket=ticket,
+            error_message="MT5 pending order lookup failed",
+        )
+        if not orders:
+            raise MT5TradeValidationError("Broker pending order was not found")
+        order = orders[0]
+        if int(self._value(order, "magic", -1)) != magic:
+            raise MT5OwnershipError("Broker order is not owned by the configured magic")
+        return order
+
+    async def _owned_position(self, ticket: int, magic: int) -> object:
+        positions = await self._vendor_call(
+            self._client.positions_get, ticket=ticket,
+            error_message="MT5 position lookup failed",
+        )
+        if not positions:
+            raise MT5TradeValidationError("Broker position was not found")
+        position = positions[0]
+        if int(self._value(position, "magic", -1)) != magic:
+            raise MT5OwnershipError("Broker position is not owned by the configured magic")
+        return position
+
+    async def _send_unknown_safe(
+        self, request: dict[str, object], symbol: str
+    ) -> dict[str, Any]:
+        self._order_send_calls += 1
+        try:
+            result = await asyncio.wait_for(
+                asyncio.to_thread(self._client.order_send, request),
+                timeout=self._settings.mt5_timeout_ms / 1000,
+            )
+        except Exception:
+            return self._unknown_result(request, symbol)
+        if result is None:
+            return self._unknown_result(request, symbol)
+        retcode = int(self._value(result, "retcode", -1))
+        outcome = self._client.trade_outcome(retcode)
+        return {
+            "outcome": outcome, "retcode": retcode,
+            "retcode_name": OrderCheckService.retcode_name(retcode),
+            "retcode_message": OrderCheckService.retcode_name(retcode).replace("_", " ").title(),
+            "broker_comment": self._sanitize(str(self._value(result, "comment", ""))) or None,
+            "order": self._positive_ticket(self._value(result, "order")),
+            "deal": self._positive_ticket(self._value(result, "deal")),
+            "volume": self._finite_or_none(self._value(result, "volume")),
+            "requested_volume": request.get("volume"),
+            "price": self._finite_or_none(self._value(result, "price")),
+            "requested_price": request.get("price", 0), "symbol": symbol,
+            "reconciliation_required": outcome == "UNKNOWN",
+        }
+
+    def _unknown_result(
+        self, request: dict[str, object], symbol: str
+    ) -> dict[str, Any]:
+        return {
+            "outcome": "UNKNOWN", "retcode": None,
+            "retcode_name": "UNKNOWN_RETCODE",
+            "retcode_message": "Broker outcome is unknown",
+            "broker_comment": None, "order": None, "deal": None,
+            "volume": request.get("volume"),
+            "requested_volume": request.get("volume"), "price": None,
+            "requested_price": request.get("price", 0), "symbol": symbol,
+            "attempts": 1, "reconciliation_required": True,
+        }
 
     async def _active_demo_account(self) -> object:
         account = await self._vendor_call(
@@ -316,9 +702,10 @@ class MT5ConnectionManager:
         operation: Callable[..., Any],
         *args: Any,
         error_message: str,
+        **kwargs: Any,
     ) -> Any:
         try:
-            return await asyncio.to_thread(operation, *args)
+            return await asyncio.to_thread(operation, *args, **kwargs)
         except Exception as exc:
             message = self._sanitize(f"{error_message}: {exc}")
             self._last_error = message
@@ -349,6 +736,79 @@ class MT5ConnectionManager:
         except Exception as exc:
             return self._sanitize(f"MT5 error unavailable: {exc}")
 
+    def _validate_geometry(
+        self, direction: str, price: float, stop: float, target: float,
+        info: object, *, closing: bool,
+    ) -> None:
+        values = (price,) if closing else (price, stop, target)
+        if any(not math.isfinite(value) or value <= 0 for value in values):
+            raise MT5TradeValidationError("Trade prices must be finite and greater than zero")
+        if not self._client.symbol_trading_allowed(int(self._value(info, "trade_mode", 0))):
+            raise MT5TradeValidationError("Symbol trading is disabled")
+        if closing:
+            return
+        valid = stop < price < target if direction == "BUY" else target < price < stop
+        if not valid:
+            raise MT5TradeValidationError("Stop/entry/target geometry is invalid")
+        self._validate_stop_distance(direction, price, stop, info)
+        minimum = max(
+            float(self._value(info, "trade_stops_level", 0) or 0),
+            float(self._value(info, "trade_freeze_level", 0) or 0),
+        ) * float(self._value(info, "point", 0) or 0)
+        if abs(target - price) < minimum:
+            raise MT5TradeValidationError("Take profit violates broker stop/freeze distance")
+
+    @staticmethod
+    def _validate_stop_distance(
+        direction: str, market_price: float, stop: float, info: object
+    ) -> None:
+        point = float(getattr(info, "point", 0) or 0)
+        minimum = max(
+            float(getattr(info, "trade_stops_level", 0) or 0),
+            float(getattr(info, "trade_freeze_level", 0) or 0),
+        ) * point
+        valid_side = stop < market_price if direction == "BUY" else stop > market_price
+        if not valid_side or abs(market_price - stop) < minimum:
+            raise MT5TradeValidationError("Stop loss violates broker side or stop/freeze distance")
+
+    def _sanitize_position(self, item: object) -> dict[str, Any]:
+        opened = datetime.fromtimestamp(int(self._value(item, "time", 0)), timezone.utc)
+        return {
+            "ticket": int(self._value(item, "ticket", 0)),
+            "symbol": str(self._value(item, "symbol", "")),
+            "direction": self._client.position_direction(int(self._value(item, "type", -1))),
+            "volume": float(self._value(item, "volume", 0)),
+            "entry_price": float(self._value(item, "price_open", 0)),
+            "current_price": float(self._value(item, "price_current", 0)),
+            "stop_loss": float(self._value(item, "sl", 0) or 0),
+            "take_profit": float(self._value(item, "tp", 0) or 0),
+            "magic": int(self._value(item, "magic", 0)), "opened_at": opened,
+        }
+
+    def _sanitize_order(self, item: object) -> dict[str, Any]:
+        return {
+            "ticket": int(self._value(item, "ticket", 0)),
+            "symbol": str(self._value(item, "symbol", "")),
+            "magic": int(self._value(item, "magic", 0)),
+            "volume": self._finite_or_none(self._value(item, "volume_current")),
+            "price": self._finite_or_none(self._value(item, "price_open")),
+        }
+
+    def _sanitize_deal(self, item: object) -> dict[str, Any]:
+        executed = datetime.fromtimestamp(int(self._value(item, "time", 0)), timezone.utc)
+        return {
+            "ticket": int(self._value(item, "ticket", 0)),
+            "position_id": self._positive_ticket(self._value(item, "position_id")),
+            "symbol": str(self._value(item, "symbol", "")),
+            "direction": self._client.deal_direction(int(self._value(item, "type", -1))),
+            "volume": float(self._value(item, "volume", 0)),
+            "price": float(self._value(item, "price", 0)),
+            "profit": float(self._value(item, "profit", 0)),
+            "commission": float(self._value(item, "commission", 0)),
+            "swap": float(self._value(item, "swap", 0)),
+            "magic": int(self._value(item, "magic", 0)), "executed_at": executed,
+        }
+
     def _missing_configuration(self) -> list[str]:
         missing: list[str] = []
         if self._settings.mt5_login is None:
@@ -368,12 +828,39 @@ class MT5ConnectionManager:
             raise MT5ConnectionError("MT5 demo account is not connected")
 
     def _sanitize(self, message: str) -> str:
-        password = self._settings.mt5_password
-        if password:
-            secret = password.get_secret_value()
-            if secret:
-                message = message.replace(secret, "[REDACTED]")
+        for value in (self._settings.mt5_password, self._settings.demo_admin_token):
+            if value:
+                secret = value.get_secret_value()
+                if secret:
+                    message = message.replace(secret, "[REDACTED]")
         return message
+
+    @staticmethod
+    def _sanitized_trade_request(request: dict[str, object]) -> dict[str, object]:
+        allowed = (
+            "action", "symbol", "volume", "type", "price", "sl", "tp",
+            "deviation", "magic", "type_filling", "position",
+        )
+        result = {name: request[name] for name in allowed if name in request}
+        if "comment" in request:
+            result["application_comment"] = request["comment"]
+        return result
+
+    @staticmethod
+    def _positive_ticket(value: Any) -> int | None:
+        try:
+            ticket = int(value)
+        except (TypeError, ValueError):
+            return None
+        return ticket if ticket > 0 else None
+
+    @staticmethod
+    def _finite_or_none(value: Any) -> float | None:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        return number if math.isfinite(number) else None
 
     @staticmethod
     def _value(source: object, name: str, default: Any = None) -> Any:

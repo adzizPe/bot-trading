@@ -45,8 +45,12 @@ class BacktestConfig:
     swap_long_per_lot: Decimal = Decimal("0")
     swap_short_per_lot: Decimal = Decimal("0")
     risk_per_trade_percent: Decimal = Decimal("1")
+    minimum_risk_reward: Decimal = Decimal("1.5")
+    maximum_spread_points: Decimal = Decimal("300")
     stop_atr_multiplier: Decimal = Decimal("1.5")
     target_risk_reward: Decimal = Decimal("2")
+    use_equity_for_risk: bool = True
+    stop_loss_method: str = "ATR"
     max_daily_loss_percent: Decimal = Decimal("3")
     max_daily_drawdown_percent: Decimal = Decimal("5")
     max_trades_per_day: int = 5
@@ -56,6 +60,8 @@ class BacktestConfig:
     volume_min: Decimal = Decimal("0.01")
     volume_max: Decimal = Decimal("100")
     volume_step: Decimal = Decimal("0.01")
+    trade_stops_level: Decimal = Decimal("0")
+    trade_freeze_level: Decimal = Decimal("0")
     same_bar_policy: str = "SL_FIRST"
 
     def __post_init__(self) -> None:
@@ -63,24 +69,36 @@ class BacktestConfig:
             "initial_balance", "point", "spread_points", "slippage_points",
             "tick_size", "tick_value", "commission_per_lot",
             "swap_long_per_lot", "swap_short_per_lot",
-            "risk_per_trade_percent", "stop_atr_multiplier",
+            "risk_per_trade_percent", "minimum_risk_reward",
+            "maximum_spread_points", "stop_atr_multiplier",
             "target_risk_reward", "max_daily_loss_percent",
-            "max_daily_drawdown_percent", "volume_min", "volume_max", "volume_step",
+            "max_daily_drawdown_percent", "volume_min", "volume_max",
+            "volume_step", "trade_stops_level", "trade_freeze_level",
         )
         for name in decimals:
             object.__setattr__(self, name, to_decimal(getattr(self, name), name))
         object.__setattr__(self, "same_bar_policy", self.same_bar_policy.upper())
+        object.__setattr__(self, "stop_loss_method", self.stop_loss_method.upper())
         positive = (
             self.initial_balance, self.point, self.tick_size, self.tick_value,
-            self.risk_per_trade_percent, self.stop_atr_multiplier,
-            self.target_risk_reward, self.max_daily_loss_percent,
-            self.max_daily_drawdown_percent, self.volume_min, self.volume_max,
-            self.volume_step,
+            self.risk_per_trade_percent, self.minimum_risk_reward,
+            self.stop_atr_multiplier, self.target_risk_reward,
+            self.max_daily_loss_percent, self.max_daily_drawdown_percent,
+            self.volume_min, self.volume_max, self.volume_step,
         )
         if any(value <= 0 for value in positive):
             raise BacktestValidationError("positive backtest values must be greater than zero")
-        if self.spread_points < 0 or self.slippage_points < 0 or self.commission_per_lot < 0:
-            raise BacktestValidationError("cost values cannot be negative")
+        non_negative = (
+            self.spread_points, self.slippage_points, self.commission_per_lot,
+            self.maximum_spread_points, self.trade_stops_level,
+            self.trade_freeze_level,
+        )
+        if any(value < 0 for value in non_negative):
+            raise BacktestValidationError("cost and broker distance values cannot be negative")
+        if not isinstance(self.use_equity_for_risk, bool):
+            raise BacktestValidationError("use_equity_for_risk must be boolean")
+        if self.stop_loss_method not in {"ATR", "SWING", "SUPPORT_RESISTANCE"}:
+            raise BacktestValidationError("unsupported stop_loss_method")
         if self.volume_max < self.volume_min:
             raise BacktestValidationError("volume_max cannot be below volume_min")
         counts = (self.max_trades_per_day, self.max_consecutive_losses, self.max_open_positions)
@@ -141,8 +159,10 @@ class BacktestState:
     equity: Decimal
     peak_equity: Decimal
     day_start_balance: Decimal
+    day_peak_equity: Decimal
     current_day: date | None = None
     daily_pnl: Decimal = Decimal("0")
+    daily_realized_loss: Decimal = Decimal("0")
     trades_today: int = 0
     consecutive_losses: int = 0
     open_positions: int = 0

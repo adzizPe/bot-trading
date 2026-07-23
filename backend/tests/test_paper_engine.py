@@ -250,8 +250,8 @@ async def test_emergency_stop_closes_position_and_no_real_order_api_exists() -> 
         await ctx["engine"].emergency_stop()
         closed = await ctx["manager"].positions.get(opened["position_id"])
         assert closed["close_reason"] == "EMERGENCY_STOP"
-        assert not hasattr(ctx["client"], "order_send")
-        assert not hasattr(ctx["mt5"], "order_send")
+        assert ctx["client"].order_send_calls == 0
+        assert ctx["mt5"].order_send_calls == 0
     finally:
         await cleanup(ctx)
 

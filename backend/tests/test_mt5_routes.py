@@ -42,3 +42,6 @@ async def test_mt5_read_only_endpoints() -> None:
             assert (await api.get("/api/v1/mt5/symbol")).json()["name"] == "XAUUSDm"
             result = await api.post("/api/v1/mt5/disconnect")
             assert result.json()["connected"] is False
+
+    assert client.order_send_calls == 0
+    assert manager.order_send_calls == 0

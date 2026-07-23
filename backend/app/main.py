@@ -19,6 +19,9 @@ from app.backtest.repository import BacktestRepository
 from app.api.router import api_router
 from app.config.settings import Settings, get_settings
 from app.database.session import SessionFactory, close_database
+from app.demo.guard import BoundedRateLimiter
+from app.demo.repository import DemoRepository
+from app.demo.service import DemoTradingService
 from app.market_data.service import MarketDataService
 from app.mt5.client import MetaTrader5Client
 from app.mt5.manager import MT5ConnectionManager
@@ -37,6 +40,7 @@ def create_app(
     trade_plan_service: TradePlanService | None = None,
     paper_engine: PaperTradingEngine | None = None,
     backtest_engine: BacktestEngine | None = None,
+    demo_service: DemoTradingService | None = None,
 ) -> FastAPI:
     settings = app_settings or get_settings()
     manager = mt5_manager or MT5ConnectionManager(MetaTrader5Client(), settings)
@@ -72,6 +76,8 @@ def create_app(
     backtest = backtest_engine or BacktestEngine(
         backtest_repository, manager, settings
     )
+    demo_repository = DemoRepository(SessionFactory)
+    demo = demo_service or DemoTradingService(manager, demo_repository, risk, settings)
     logging.basicConfig(
         level=getattr(logging, settings.log_level.upper(), logging.INFO),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -79,6 +85,9 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        initializer = getattr(demo, "initialize", None)
+        if settings.demo_execution_enabled and initializer is not None:
+            await initializer()
         try:
             yield
         finally:
@@ -95,12 +104,13 @@ def create_app(
 
     application = FastAPI(
         title=settings.app_name,
-        version="0.7.0",
+        version="0.9.0",
         debug=settings.app_debug,
         lifespan=lifespan,
         docs_url="/docs" if settings.app_env != "production" else None,
         redoc_url=None,
     )
+    application.state.settings = settings
     application.state.mt5_manager = manager
     application.state.market_data_service = market_data_service
     application.state.analysis_service = analysis
@@ -111,12 +121,21 @@ def create_app(
     application.state.paper_statistics_service = paper_statistics
     application.state.backtest_repository = backtest_repository
     application.state.backtest_engine = backtest
+    application.state.demo_repository = demo_repository
+    application.state.demo_service = demo
+    application.state.demo_rate_limiter = BoundedRateLimiter(
+        settings.demo_rate_limit_requests,
+        settings.demo_rate_limit_window_seconds,
+        settings.demo_rate_limit_max_clients,
+    )
     application.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=False,
-        allow_methods=["GET", "POST", "PUT"],
-        allow_headers=["Accept", "Content-Type"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=[
+            "Accept", "Content-Type", "X-Admin-Token", "X-Idempotency-Key"
+        ],
     )
     application.include_router(api_router, prefix=settings.api_v1_prefix)
     return application

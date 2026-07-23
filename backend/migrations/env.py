@@ -7,12 +7,16 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.config.settings import get_settings
 from app.database.base import Base
-from app.database.models import Signal  # noqa: F401
+from app.database.models import DemoSettings, Signal  # noqa: F401
 
 config = context.config
 if config.config_file_name:
     fileConfig(config.config_file_name)
-config.set_main_option("sqlalchemy.url", get_settings().database_url.replace("%", "%%"))
+x_arguments = context.get_x_argument(as_dictionary=True)
+database_url = x_arguments.get("database_url")
+if database_url is None:
+    database_url = get_settings().database_url
+config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 target_metadata = Base.metadata
 
 

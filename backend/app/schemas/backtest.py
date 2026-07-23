@@ -3,6 +3,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.schemas.analysis import AnalysisConfigurationOverride
+from app.schemas.risk import RiskSettingsUpdate
+
 
 class TradingSession(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -31,8 +34,10 @@ class BacktestRequest(BaseModel):
     minimum_risk_reward: float = Field(default=1.5, gt=0)
     trading_sessions: list[TradingSession] = Field(default_factory=list)
     strategy_name: str = Field(default="EMA_RSI_ATR_MTF_V1", min_length=1, max_length=100)
-    strategy_settings: dict[str, Any] = Field(default_factory=dict)
-    risk_settings: dict[str, Any] = Field(default_factory=dict)
+    strategy_settings: AnalysisConfigurationOverride = Field(
+        default_factory=AnalysisConfigurationOverride
+    )
+    risk_settings: RiskSettingsUpdate = Field(default_factory=RiskSettingsUpdate)
     close_open_positions_at_end: bool = True
     same_bar_policy: Literal["SL_FIRST", "TP_FIRST"] = "SL_FIRST"
     source: Literal["MT5", "CSV"] = "MT5"

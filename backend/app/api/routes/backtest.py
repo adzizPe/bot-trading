@@ -28,7 +28,7 @@ def _not_found(error: Exception | None = None) -> HTTPException:
 
 @router.post("", response_model=BacktestSummary, status_code=status.HTTP_202_ACCEPTED)
 async def submit_backtest(engine: EngineDependency, payload: BacktestRequest) -> Any:
-    return await engine.submit(payload.model_dump(mode="json"))
+    return await engine.submit(payload.model_dump(mode="json", exclude_none=True))
 
 
 @router.get("", response_model=list[BacktestSummary])

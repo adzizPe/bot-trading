@@ -152,7 +152,7 @@ def test_backtest_api_with_demo_historical_data_is_read_only() -> None:
             assert exported.text.startswith("trade_id,direction,entry_time,exit_time,")
             assert before == live_counts()
             assert "/api/v1/backtests" in api.get("/openapi.json").json()["paths"]
-            assert not hasattr(manager, "order_send")
+            assert manager.order_send_calls == 0
         finally:
             if connected:
                 disconnected = api.post("/api/v1/mt5/disconnect")

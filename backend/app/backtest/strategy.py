@@ -8,6 +8,7 @@ from app.analysis.market_structure import MarketStructureDetector
 from app.analysis.scoring import SignalScoringService
 from app.analysis.support_resistance import SupportResistanceDetector
 from app.analysis.engine import StrategyEngine
+from app.analysis.validator import SignalValidator
 from app.backtest.exceptions import HistoricalDataError, LookAheadError
 from app.backtest.historical import HistoricalDataService
 from app.backtest.types import deterministic_id, utc_datetime
@@ -32,6 +33,7 @@ class BacktestStrategyRunner:
         )
         self._engine = StrategyEngine(SignalScoringService())
         self._confirmation = CandleConfirmationDetector()
+        self._validator = SignalValidator()
 
     def decision_times(self) -> list[datetime]:
         return [candle.close_time for candle in self.historical.candles("M5")]
@@ -45,6 +47,15 @@ class BacktestStrategyRunner:
             datasets[timeframe] = [candle.as_dict() for candle in candles]
         if not datasets["M5"] or datasets["M5"][-1]["close_time"] != at:
             raise LookAheadError("decision_time must be an M5 candle close time")
+        if self.config is not None and self.strategy is None:
+            minimum = max(
+                self.config.ema_slow_period + 1,
+                self.config.rsi_period + 1,
+                self.config.atr_period,
+                self.config.structure_lookback,
+            )
+            for timeframe, candles in datasets.items():
+                self._validator.validate_candles(candles, timeframe, minimum)
         return datasets
 
     def evaluate(
@@ -70,8 +81,19 @@ class BacktestStrategyRunner:
                 self.config.candle_body_atr_min,
                 self.config.candle_close_location_min,
             )
+            hard_rejections = self._validator.synchronization_reasons(datasets)
+            hard_rejections.extend(
+                self._validator.spread_reasons(
+                    spread_points, self.config.max_spread_points
+                )
+            )
             result = self._engine.analyze(
-                self.symbol, indicators, confirmation, spread_points, self.config
+                self.symbol,
+                indicators,
+                confirmation,
+                spread_points,
+                self.config,
+                list(dict.fromkeys(hard_rejections)),
             )
         result.setdefault("symbol", self.symbol)
         result["decision_time"] = at

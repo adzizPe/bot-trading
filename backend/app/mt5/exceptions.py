@@ -16,3 +16,11 @@ class MT5RealAccountRejected(MT5Error):
 
 class MT5SymbolNotFound(MT5Error):
     """No supported gold symbol was found."""
+
+
+class MT5TradeValidationError(MT5Error):
+    pass
+
+
+class MT5OwnershipError(MT5Error):
+    pass

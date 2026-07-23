@@ -164,5 +164,8 @@ def test_confidence_score_is_bounded() -> None:
     assert factors
 
 
-def test_fake_mt5_has_no_order_execution_method() -> None:
-    assert not hasattr(FakeMT5Client(), "order_send")
+def test_fake_mt5_order_execution_fails_unless_explicitly_configured() -> None:
+    client = FakeMT5Client()
+    with pytest.raises(AssertionError, match="Unexpected order_send"):
+        client.order_send({})
+    assert client.order_send_calls == 1

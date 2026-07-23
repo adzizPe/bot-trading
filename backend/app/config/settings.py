@@ -1,7 +1,8 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
-from pydantic import SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -83,11 +84,35 @@ class Settings(BaseSettings):
     paper_trailing_stop_method: str = "POINTS"
     paper_trailing_distance_points: float = 0.0
     paper_trailing_atr_multiplier: float = 1.0
+    demo_execution_enabled: bool = False
+    demo_admin_token: SecretStr | None = None
+    demo_execution_mode: Literal["MANUAL_DEMO"] = "MANUAL_DEMO"
+    demo_magic: int = Field(default=9072026, gt=0, le=2_147_483_647)
+    demo_comment: str = Field(default="bot-demo", min_length=1, max_length=31)
+    demo_deviation_points: int = Field(default=20, ge=0, le=1000)
+    demo_maximum_spread_points: float = Field(default=300.0, gt=0)
+    demo_intent_ttl_seconds: int = Field(default=300, ge=1, le=3600)
+    demo_emergency_close_positions: bool = False
+    demo_trailing_stop_enabled: bool = False
+    demo_trailing_distance_points: float = Field(default=0.0, ge=0)
+    demo_rate_limit_requests: int = Field(default=60, ge=1, le=1000)
+    demo_rate_limit_window_seconds: int = Field(default=60, ge=1, le=3600)
+    demo_rate_limit_max_clients: int = Field(default=1024, ge=1, le=10000)
 
-    @field_validator("mt5_login", "mt5_password", "mt5_server", "mt5_path", mode="before")
+    @field_validator(
+        "mt5_login", "mt5_password", "mt5_server", "mt5_path",
+        "demo_admin_token", mode="before",
+    )
     @classmethod
     def empty_mt5_values_are_none(cls, value: object) -> object:
         return None if value == "" else value
+
+    @field_validator("demo_admin_token")
+    @classmethod
+    def validate_demo_admin_token(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is not None and len(value.get_secret_value()) < 16:
+            raise ValueError("DEMO_ADMIN_TOKEN must contain at least 16 characters")
+        return value
 
     model_config = SettingsConfigDict(
         env_file=(PROJECT_DIR / ".env", BACKEND_DIR / ".env"),

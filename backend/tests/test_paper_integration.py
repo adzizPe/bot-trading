@@ -50,4 +50,4 @@ def test_paper_engine_with_demo_market_prices() -> None:
         assert stopped.json()["status"] == "STOPPED"
         assert "/api/v1/paper/open" in api.get("/openapi.json").json()["paths"]
         assert api.post("/api/v1/mt5/disconnect").status_code == 200
-        assert not hasattr(manager, "order_send")
+        assert manager.order_send_calls == 0

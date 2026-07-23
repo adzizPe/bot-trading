@@ -435,3 +435,112 @@ def test_full_statistics_contract_is_numeric_except_nullable_sharpe() -> None:
     assert required == set(report["performance"])
     assert report["warnings"]
     assert "Past performance" in report["disclaimer"]
+
+
+def test_backtest_risk_uses_shared_stop_target_and_broker_distances() -> None:
+    from app.risk.calculators import StopLossCalculator, TakeProfitCalculator
+    from app.risk.types import RiskConfig, SymbolSpecification
+
+    config = BacktestConfig(
+        point="0.01", tick_size="0.1", trade_stops_level="200",
+        stop_atr_multiplier="1.5", target_risk_reward="2",
+    )
+    manager = BacktestRiskManager(config)
+    plan_result = manager.create_trade_plan(
+        {"signal_id": "shared-risk", "direction": "BUY", "symbol": "XAUUSD"},
+        entry_price="100", atr="1.03", decision_time=START,
+    )
+    shared_config = RiskConfig(
+        maximum_spread_points=config.maximum_spread_points,
+        atr_multiplier=config.stop_atr_multiplier,
+        target_risk_reward=config.target_risk_reward,
+        session_enabled=False,
+    )
+    specification = SymbolSpecification(
+        digits=2, point=config.point, trade_tick_size=config.tick_size,
+        trade_tick_value=config.tick_value, volume_min=config.volume_min,
+        volume_max=config.volume_max, volume_step=config.volume_step,
+        trade_stops_level=config.trade_stops_level,
+        trade_freeze_level=config.trade_freeze_level,
+    )
+    stop = StopLossCalculator().calculate(
+        "BUY", "100", "1.03", shared_config, specification
+    )
+    target = TakeProfitCalculator().calculate(
+        "BUY", "100", stop["stop_loss"], shared_config, specification
+    )
+    assert plan_result["stop_loss"] == Decimal(str(stop["stop_loss"]))
+    assert plan_result["take_profit"] == Decimal(str(target["take_profit"]))
+
+
+def test_backtest_risk_rejects_spread_above_shared_limit() -> None:
+    manager = BacktestRiskManager(
+        BacktestConfig(spread_points="3", maximum_spread_points="2")
+    )
+    with pytest.raises(BacktestRiskRejected, match="Spread exceeds configured maximum"):
+        manager.create_trade_plan(
+            {"signal_id": "wide-spread", "direction": "BUY"},
+            entry_price="100", atr="1", decision_time=START, spread_points="3",
+        )
+
+
+def test_daily_drawdown_uses_daily_peak_not_all_time_peak() -> None:
+    state = BacktestStateManager("10000")
+    manager = BacktestRiskManager(
+        BacktestConfig(max_daily_drawdown_percent="5"), state
+    )
+    manager.validate("day-one", START)
+    state.mark_to_market("1000")
+    state.mark_to_market("0")
+    tomorrow = START + timedelta(days=1)
+    manager.validate("day-two", tomorrow)
+    state.mark_to_market("500")
+    state.mark_to_market("0")
+    assert state.state.peak_equity == Decimal("11000")
+    assert state.state.day_peak_equity == Decimal("10500")
+    assert "Maximum daily drawdown reached" not in manager.validate(
+        "within-daily-limit", tomorrow
+    )
+    state.mark_to_market("-100")
+    assert "Maximum daily drawdown reached" in manager.validate(
+        "over-daily-limit", tomorrow
+    )
+
+
+def test_floating_equity_includes_commission_and_accrued_swap() -> None:
+    config = BacktestConfig(
+        spread_points="0", commission_per_lot="2", swap_long_per_lot="-3"
+    )
+    manager = BacktestPositionManager(BacktestExecutionSimulator(config))
+    manager.open(plan(), bar(5))
+    next_day = bar(5 + 24 * 60, close=100.5)
+    assert manager.floating_pnl(next_day) == Decimal("45")
+
+
+def test_strategy_applies_shared_hard_spread_rejection(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    service = HistoricalDataService()
+    service.load(candles(48))
+    config = SimpleNamespace(
+        candle_count=100, ema_slow_period=2, ema_fast_period=1,
+        rsi_period=1, atr_period=1, structure_lookback=4,
+        candle_body_atr_min=0, candle_close_location_min=0,
+        max_spread_points=2, rsi_overbought=70, rsi_oversold=30,
+        strategy_name="EMA_RSI_ATR_MTF_V1",
+    )
+    runner = BacktestStrategyRunner(service, analysis_config=config)
+    monkeypatch.setattr(
+        runner._indicator,
+        "analyze",
+        lambda symbol, timeframe, values, settings: {
+            "ema_fast": 2, "ema_slow": 1, "ema_fast_previous": 1,
+            "ema_slow_previous": 1, "rsi": 50, "atr": 1,
+            "market_structure": "BULLISH", "data_valid": True,
+            "close": values[-1]["close"], "candle_time": values[-1]["timestamp"],
+        },
+    )
+    monkeypatch.setattr(runner._confirmation, "detect", lambda *args: "BULLISH")
+    result = runner.evaluate(START + timedelta(hours=4), spread_points=3)
+    assert result["direction"] == "HOLD"
+    assert "Spread exceeds configured maximum" in result["rejection_reasons"]

@@ -119,8 +119,8 @@ async def test_real_account_is_rejected_without_order() -> None:
         plan = await service.create_trade_plan(signal["signal_id"], now=NOW)
         assert plan["status"] == "REJECTED"
         assert any("demo" in reason.lower() for reason in plan["rejection_reasons"])
-        assert not hasattr(client, "order_send")
-        assert not hasattr(manager, "order_send")
+        assert client.order_send_calls == 0
+        assert manager.order_send_calls == 0
     finally:
         await manager.disconnect()
         await engine.dispose()

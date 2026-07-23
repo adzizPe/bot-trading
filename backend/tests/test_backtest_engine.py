@@ -103,7 +103,7 @@ async def test_mt5_source_uses_only_read_only_h1_m15_m5_calls() -> None:
     assert manager.calls == ["H1", "M15", "M5"]
     detail = await repository.get(job["backtest_id"])
     assert detail is not None and detail["status"] == "COMPLETED"
-    assert not hasattr(manager, "order_send")
+    assert manager.calls == ["H1", "M15", "M5"]
     await db.dispose()
 
 

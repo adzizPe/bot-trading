@@ -106,7 +106,41 @@ def test_backtest_routes_202_csv_and_openapi() -> None:
             "net_profit_loss,close_reason,signal_id,trade_plan_id"
         )
         document = api.get("/openapi.json").json()
-        assert document["info"]["version"] == "0.7.0"
+        assert document["info"]["version"] == "0.9.0"
         paths = document["paths"]
         assert "/api/v1/backtests/{backtest_id}/report" in paths
         assert "/api/v1/backtests/{backtest_id}/export.csv" in paths
+
+
+def test_backtest_rejects_unknown_nested_override_keys() -> None:
+    settings = make_settings()
+    manager = MT5ConnectionManager(FakeMT5Client(), settings)
+    engine = FakeBacktestEngine()
+    app = create_app(settings, manager, backtest_engine=engine)  # type: ignore[arg-type]
+    app.state.backtest_repository = FakeRepository()
+    base = {
+        "symbol": "XAUUSD", "start_date": "2026-01-01",
+        "end_date": "2026-01-02", "source": "CSV", "csv_path": "rates.csv",
+    }
+    with TestClient(app) as api:
+        strategy = {**base, "strategy_settings": {"unknown": 1}}
+        risk = {**base, "risk_settings": {"unknown": 1}}
+        assert api.post("/api/v1/backtests", json=strategy).status_code == 422
+        assert api.post("/api/v1/backtests", json=risk).status_code == 422
+
+
+def test_backtest_nested_defaults_are_serialized_without_none_values() -> None:
+    settings = make_settings()
+    manager = MT5ConnectionManager(FakeMT5Client(), settings)
+    engine = FakeBacktestEngine()
+    app = create_app(settings, manager, backtest_engine=engine)  # type: ignore[arg-type]
+    app.state.backtest_repository = FakeRepository()
+    payload = {
+        "symbol": "XAUUSD", "start_date": "2026-01-01",
+        "end_date": "2026-01-02", "source": "CSV", "csv_path": "rates.csv",
+    }
+    with TestClient(app) as api:
+        assert api.post("/api/v1/backtests", json=payload).status_code == 202
+    assert engine.submitted is not None
+    assert engine.submitted["strategy_settings"] == {}
+    assert engine.submitted["risk_settings"] == {}

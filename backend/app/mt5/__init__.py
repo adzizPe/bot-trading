@@ -1,1 +1,1 @@
-"""Read-only MetaTrader 5 integration."""
+"""Guarded MetaTrader 5 market-data and demo-execution integration."""

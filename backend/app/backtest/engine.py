@@ -220,6 +220,7 @@ class BacktestEngine:
                         entry_price=entry_price,
                         atr=signal["atr"],
                         decision_time=signal["decision_time"],
+                        spread_points=current.spread_points,
                     )
                     opened = positions.open(plan, candle)
                     all_positions[opened["position_id"]] = dict(opened)
@@ -366,8 +367,18 @@ class BacktestEngine:
             swap_long_per_lot=configuration["swap_long_per_lot"],
             swap_short_per_lot=configuration["swap_short_per_lot"],
             risk_per_trade_percent=configuration["risk_per_trade_percent"],
+            minimum_risk_reward=configuration["minimum_risk_reward"],
+            maximum_spread_points=risk.get(
+                "maximum_spread_points", self.settings.risk_maximum_spread_points
+            ),
             stop_atr_multiplier=risk.get("atr_multiplier", self.settings.risk_atr_multiplier),
             target_risk_reward=target_rr,
+            use_equity_for_risk=risk.get(
+                "use_equity_for_risk", self.settings.risk_use_equity_for_risk
+            ),
+            stop_loss_method=risk.get(
+                "stop_loss_method", self.settings.risk_stop_loss_method
+            ),
             max_daily_loss_percent=risk.get(
                 "max_daily_loss_percent", self.settings.risk_max_daily_loss_percent
             ),
@@ -389,6 +400,8 @@ class BacktestEngine:
             volume_min=specification["volume_min"],
             volume_max=specification["volume_max"],
             volume_step=specification["volume_step"],
+            trade_stops_level=specification.get("trade_stops_level") or 0,
+            trade_freeze_level=specification.get("trade_freeze_level") or 0,
             same_bar_policy=configuration["same_bar_policy"],
         )
 

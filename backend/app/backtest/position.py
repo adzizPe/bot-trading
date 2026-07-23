@@ -53,12 +53,22 @@ class BacktestPositionManager:
         return closed
 
     def floating_pnl(self, candle: BacktestCandle) -> Decimal:
+        """Return net floating PnL using the same cost model as paper trading."""
         total = Decimal("0")
+        config = self.execution.config
         bid, ask = self.execution.quote(candle.close)
         for position in self.positions.values():
-            total += self.execution.pnl.floating_pnl(
+            gross = self.execution.pnl.floating_pnl(
                 position["direction"], position["entry_price"], bid, ask,
-                position["volume"], self.execution.config.tick_size,
-                self.execution.config.tick_value,
+                position["volume"], config.tick_size, config.tick_value,
             )
+            commission = self.execution.pnl.commission(
+                config.commission_per_lot, position["volume"]
+            )
+            swap = self.execution.pnl.swap(
+                position["direction"], position["opened_at"], candle.close_time,
+                position["volume"], config.swap_long_per_lot,
+                config.swap_short_per_lot,
+            )
+            total += gross - commission + swap
         return total

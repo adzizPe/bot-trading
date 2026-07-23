@@ -1,6 +1,6 @@
 # XAU/USD Trading Bot
 
-Aplikasi pembelajaran untuk market data, analisis, risk planning, paper trading, dan backtesting XAU/USD dengan akun **demo** MetaTrader 5. Milestone 7 hanya membaca data historis dan menyimpan simulasi di SQLite: tidak ada pengiriman order, perubahan posisi MT5, atau dukungan akun real.
+Aplikasi pembelajaran untuk market data, analisis, risk planning, paper trading, backtesting, dan eksekusi manual XAU/USD pada akun **demo** MetaTrader 5. Milestone 9 tetap menolak akun real/contest yang tidak sesuai, tidak mengaktifkan auto trading, dan tidak pernah memulai engine demo otomatis setelah restart.
 
 ## Status Milestone 7
 
@@ -8,9 +8,10 @@ Tersedia seluruh fondasi Milestone 1–6 serta:
 
 - Backtest modular: `BacktestEngine`, `HistoricalDataService`, `BacktestStrategyRunner`, `BacktestRiskManager`, `BacktestExecutionSimulator`, `BacktestPositionManager`, `BacktestPnLCalculator`, `BacktestStatisticsService`, `EquityCurveService`, `DrawdownCalculator`, `BacktestReportService`, dan `BacktestStateManager`.
 - Sumber candle historis MT5 read-only atau CSV; timeframe M1, M5, M15, M30, H1, H4, dan D1 tervalidasi.
-- Strategi awal H1/M15/M5 memakai komponen analysis/risk/PnL yang sama dengan paper trading, tanpa menulis ke tabel live.
+- Strategi awal H1/M15/M5 memakai komponen analysis yang sama dengan paper trading, termasuk validasi sinkronisasi dan hard spread rejection.
+- Risk backtest memakai `RiskManager`, `StopLossCalculator`, `TakeProfitCalculator`, `RiskRewardValidator`, dan `PositionSizeCalculator` yang sama dengan paper trading; override `strategy_settings`/`risk_settings` tervalidasi ketat sebelum job dibuat.
 - Anti-look-ahead: hanya candle closed dengan close time tidak melewati decision time; entry baru dihitung pada open M5 berikutnya.
-- Simulasi spread, adverse slippage, commission, swap directional, SL/TP, dan kebijakan same-bar konservatif `SL_FIRST`.
+- Simulasi spread, adverse slippage, commission, swap directional, SL/TP, dan kebijakan same-bar konservatif `SL_FIRST`; floating equity bersifat net setelah commission dan accrued calendar-day swap.
 - Background job persisten dengan status `PENDING`, `RUNNING`, `COMPLETED`, `FAILED`, `CANCELLED`, progress, ETA, dan cooperative cancellation.
 - Laporan, equity/drawdown curve, audit event, daftar trade/rejection, dan export CSV.
 - Deployment tetap native: Python virtual environment, Vite build, Nginx, serta NSSM/PM2; tanpa Docker/container.
@@ -18,6 +19,26 @@ Tersedia seluruh fondasi Milestone 1–6 serta:
 Belum tersedia dan tidak termasuk Milestone 7: order execution MT5, posisi asli akun demo, akun real, optimasi strategi, machine learning, atau dashboard lengkap.
 
 Backend tidak otomatis terhubung ke MT5, paper engine tidak otomatis `RUNNING`, dan backtest hanya dimulai melalui `POST /api/v1/backtests`. Semua hasil simulasi berada di SQLite.
+
+## Status Milestone 8
+
+Dashboard React lengkap tersedia dengan dark responsive shell, sidebar/topbar, 11 route, TanStack Query, WebSocket market dengan reconnect/backoff, candlestick/equity/drawdown chart, toast, confirmation dialog, loading/empty/error state, dan API client TypeScript tersanitasi. Halaman mencakup Overview, Market, Analysis, Signals, Risk Management, Trade Plans, Paper Trading, Backtesting, MT5 Connection, Logs, dan Settings.
+
+Frontend hanya memanggil endpoint market/analysis/risk/paper/backtest/MT5 yang sudah tersedia. Tidak ada endpoint atau client method untuk order broker. Riwayat signal global, application log global, dan Telegram belum diekspos backend; dashboard menandai keterbatasan tersebut secara eksplisit dan tidak menyimpan secret di browser. Signals menampilkan latest persisted signal serta history sesi dashboard, sedangkan Logs merangkum status aman MT5, paper, dan backtest.
+
+Testing frontend menggunakan Vitest dan Testing Library untuk routing, API client, state UI, WebSocket reconnect, risk validation, lifecycle paper, emergency confirmation, backtest, CSV, sanitasi secret, responsive navigation, dan batas request execution yang tidak menerima parameter trading bebas.
+
+## Status Milestone 9
+
+Eksekusi broker tersedia hanya dalam mode `MANUAL_DEMO` dan feature flag default `false`. Backend memuat ulang trade plan/signal, memverifikasi signal `CANDIDATE` belum kedaluwarsa, mengulang demo-account guard di dalam lock MT5 tepat sebelum `order_check` dan `order_send`, mengambil fresh Bid/Ask, menghitung ulang volume berbasis risk, memvalidasi spread/stops/freeze/margin, lalu menyimpan request/result tersanitasi dan melakukan rekonsiliasi.
+
+- Engine persisten mendukung `STOPPED`, `STARTING`, `RUNNING`, `PAUSED`, `RISK_LOCKED`, `CONNECTION_LOST`, `ERROR`, dan `EMERGENCY_STOPPED`; startup selalu memaksa `STOPPED`.
+- Idempotency, `trade_plan_id`, dan `signal_id` dilindungi unique constraint atomik. Outcome tidak pasti disimpan `UNKNOWN` dan tidak dikirim ulang sebelum reconciliation.
+- Maksimal satu retry hanya untuk `REQUOTE` atau `PRICE_CHANGED`. Retcode lain tidak diretry agresif.
+- Seluruh `/api/v1/demo/*` membutuhkan `X-Admin-Token` dan rate limit. Token dashboard hanya berada di memori tab, bukan `localStorage`/`sessionStorage`.
+- Dashboard menambahkan Demo Trading, execution/order/position/deal history, close, break-even, reconcile, emergency stop, dan tombol `Execute Demo` dengan konfirmasi tepat `EXECUTE DEMO ORDER`.
+- Frontend tidak menerima atau mengirim symbol, volume, SL, atau TP bebas untuk execution dari trade plan.
+- Tidak ada endpoint akun real dan tidak ada bypass demo guard. Integration test order nyata dipisahkan, opt-in eksplisit, dan tidak dijalankan otomatis.
 
 ## Struktur
 
@@ -59,7 +80,17 @@ MT5_PASSWORD="<DEMO_TRADING_PASSWORD>"
 MT5_SERVER=<NAMA_SERVER_DEMO_PERSIS>
 MT5_PATH=C:\Program Files\MetaTrader 5\terminal64.exe
 MT5_SYMBOL=XAUUSD
+
+# Tetap false sampai setup admin dan review selesai.
+DEMO_EXECUTION_ENABLED=false
+DEMO_ADMIN_TOKEN=<TOKEN_ADMIN_ACAK_MINIMAL_16_KARAKTER>
+DEMO_EXECUTION_MODE=MANUAL_DEMO
+DEMO_MAGIC=9072026
+DEMO_COMMENT=bot-demo
+DEMO_EMERGENCY_CLOSE_POSITIONS=false
 ```
+
+`DEMO_EXECUTION_ENABLED` default `false`; `DEMO_EXECUTION_MODE` hanya menerima `MANUAL_DEMO`. Jangan memasukkan token admin ke build Vite. Operator mengetikkannya di halaman Demo Trading dan nilainya hanya disimpan di memori tab.
 
 `MT5_SYMBOL` adalah simbol pilihan broker. Resolver akan mencoba simbol konfigurasi lebih dahulu, kemudian `XAUUSD`, `XAUUSDm`, `XAUUSD.a`, dan `GOLD`. `digits` serta `point` selalu dibaca dari spesifikasi simbol MT5.
 
@@ -166,6 +197,30 @@ Skor terdiri dari trend alignment (25), market structure (15), setup alignment (
 | GET     | `/api/v1/paper/equity-curve`         | Snapshot equity                      |
 
 `POST /paper/open` hanya menerima `trade_plan_id`; lot, SL, dan TP tidak dapat diberikan bebas. Engine status: `STOPPED`, `STARTING`, `RUNNING`, `PAUSED`, `RISK_LOCKED`, `ERROR`, atau `EMERGENCY_STOPPED`.
+
+## Endpoint MT5 demo execution
+
+Semua endpoint berikut membutuhkan header `X-Admin-Token`; mutation juga dibatasi rate limiter backend.
+
+| Method  | Endpoint                                   | Fungsi                                       |
+| ------- | ------------------------------------------ | -------------------------------------------- |
+| GET/PUT | `/api/v1/demo/settings`                    | Settings aman MANUAL_DEMO                    |
+| GET     | `/api/v1/demo/status`                      | Engine dan broker demo status                |
+| POST    | `/api/v1/demo/start`                       | Start manual eksplisit                       |
+| POST    | `/api/v1/demo/pause`                       | Pause order baru                             |
+| POST    | `/api/v1/demo/stop`                        | Stop tanpa auto-close posisi                 |
+| POST    | `/api/v1/demo/emergency-stop`              | Emergency stop; close-owned default false    |
+| POST    | `/api/v1/demo/execute`                     | Eksekusi APPROVED plan dengan idempotency    |
+| GET     | `/api/v1/demo/executions[/{execution_id}]` | Ledger execution tersanitasi                 |
+| GET     | `/api/v1/demo/orders`                      | Order demo milik aplikasi                    |
+| GET     | `/api/v1/demo/positions`                   | Posisi magic aplikasi                        |
+| GET     | `/api/v1/demo/deals`                       | Deal history magic aplikasi                  |
+| POST    | `/api/v1/demo/positions/{id}/close`        | Close dengan sisi berlawanan dan fresh quote |
+| POST    | `/api/v1/demo/positions/{id}/move-stop`    | Perketat stop yang tervalidasi               |
+| POST    | `/api/v1/demo/positions/{id}/break-even`   | Pindahkan stop ke entry saat valid           |
+| POST    | `/api/v1/demo/reconcile`                   | Sinkronkan order/position/deal MT5           |
+
+`POST /demo/execute` hanya menerima `trade_plan_id`, `idempotency_key`, dan `confirmation_text` bernilai tepat `EXECUTE DEMO ORDER`. Nilai volume, symbol, SL, dan TP dari frontend ditolak schema.
 
 ## Menguji melalui Swagger
 
@@ -377,10 +432,11 @@ backend\.venv\Scripts\python.exe -m pytest -c backend\pytest.ini backend\tests -
 backend\.venv\Scripts\python.exe -m pytest -c backend\pytest.ini backend\tests -m integration
 npm run lint --prefix frontend
 npm run typecheck --prefix frontend
+npm run test --prefix frontend
 npm run build --prefix frontend
 ```
 
-Integration test memverifikasi akun demo, market data, analysis, risk planning, lifecycle paper explicit-start, quote real-time, endpoint/OpenAPI, dan disconnect. Adapter/protocol MT5 tetap read-only dan tidak menyediakan pengiriman order.
+Integration test market/analysis/risk/paper/backtest tetap read-only. Test actual demo order berada di `test_demo_integration.py`, ditandai `integration`, memerlukan opt-in destruktif dan dedicated test magic, serta tidak boleh dijalankan sebelum operator meninjau request minimum-lot tersanitasi dan memberi persetujuan eksplisit.
 
 ## Database dan deployment native
 
@@ -390,10 +446,13 @@ Service backend boleh otomatis hidup setelah restart, tetapi koneksi MT5 dan akt
 
 ## Catatan keamanan
 
-- Trade mode demo diperiksa ulang sebelum setiap pembacaan market data, termasuk cache hit.
-- Password menggunakan `SecretStr`, tidak ada di response schema, dan disanitasi dari error log.
+- Trade mode demo diperiksa ulang di backend sebelum operasi MT5 dan tepat sebelum `order_check`/`order_send`; akun real atau contest yang tidak sesuai selalu ditolak.
+- Demo execution default disabled, hanya `MANUAL_DEMO`, membutuhkan admin token dan rate limit, serta engine selalu kembali `STOPPED` saat startup.
+- Password dan admin token menggunakan `SecretStr`, tidak ada di response schema, dan disanitasi dari error log.
+- Execution request/result, order, posisi, deal, event, settings, engine state, dan reconciliation disimpan pada delapan tabel ledger migration `20260725_0006`.
+- Dashboard tidak menyimpan admin token, password, atau secret di `localStorage`/`sessionStorage`.
 - `.env` diabaikan Git dan tidak boleh disalin ke frontend.
-- API saat ini untuk akses lokal/development; authentication dan HTTPS wajib ditambahkan sebelum akses publik.
+- CORS tetap explicit; autentikasi admin demo tidak menggantikan HTTPS/reverse-proxy hardening saat akses jaringan.
 - Dokumentasi API dinonaktifkan saat `APP_ENV=production`.
 
 ## Backtesting Milestone 7
@@ -528,4 +587,4 @@ npm run typecheck --prefix frontend
 npm run build --prefix frontend
 ```
 
-Melalui Swagger: hubungkan MT5 demo dengan `/mt5/connect`, kirim konfigurasi ke `/backtests`, poll detail sampai terminal, lalu baca report/equity/CSV. Paper engine tidak perlu dijalankan. Adapter MT5 tetap read-only dan tidak menyediakan API pengiriman order.
+Melalui Swagger: hubungkan MT5 demo dengan `/mt5/connect`, kirim konfigurasi ke `/backtests`, poll detail sampai terminal, lalu baca report/equity/CSV. Paper engine dan demo execution engine tidak perlu dijalankan; subsystem backtest tetap read-only dan tidak memanggil API pengiriman order.
