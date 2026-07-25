@@ -6,10 +6,12 @@ param(
     [int]$Requests = 1000,
     [ValidateRange(1, 500)]
     [int]$Concurrency = 20,
+    [ValidateSet('/healthz')]
     [string]$Path = '/healthz'
 )
 
 if ($BaseUri.Scheme -ne 'https') { throw 'Benchmark BaseUri must use HTTPS.' }
+Add-Type -AssemblyName System.Net.Http
 $handler = [System.Net.Http.HttpClientHandler]::new()
 $methods = [System.Net.DecompressionMethods]::GZip -bor [System.Net.DecompressionMethods]::Deflate
 if ([Enum]::GetNames([System.Net.DecompressionMethods]) -contains 'Brotli') {
@@ -29,11 +31,14 @@ try {
         for ($index = 0; $index -lt $count; $index++) {
             $tasks += $client.GetAsync($target)
         }
-        [System.Threading.Tasks.Task]::WaitAll([System.Threading.Tasks.Task[]]$tasks)
         foreach ($task in $tasks) {
-            $response = $task.GetAwaiter().GetResult()
-            if ($response.IsSuccessStatusCode) { $completed++ } else { $failed++ }
-            $response.Dispose()
+            try {
+                $response = $task.GetAwaiter().GetResult()
+                if ($response.IsSuccessStatusCode) { $completed++ } else { $failed++ }
+                $response.Dispose()
+            } catch {
+                $failed++
+            }
         }
     }
 } finally {

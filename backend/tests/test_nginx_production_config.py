@@ -10,6 +10,11 @@ SECURITY = (SNIPPETS / "security-headers.conf").read_text(encoding="utf-8")
 PROXY = (SNIPPETS / "proxy-common.conf").read_text(encoding="utf-8")
 WEBSOCKET = (SNIPPETS / "proxy-websocket.conf").read_text(encoding="utf-8")
 BROTLI = (SNIPPETS / "brotli.conf.example").read_text(encoding="utf-8")
+BENCHMARK = (ROOT / "scripts" / "Benchmark-Nginx.ps1").read_text(encoding="utf-8")
+ACTIVE_CONFIG = "\n".join(
+    line for line in CONFIG.splitlines()
+    if line.strip() and not line.lstrip().startswith("#")
+)
 
 
 def block_from(start: int) -> str:
@@ -35,18 +40,20 @@ def test_configuration_lint_contract() -> None:
     assert "proxy_pass http://127.0.0.1:8000" not in CONFIG
     assert "upstream trading_backend" in CONFIG
     assert "server 127.0.0.1:8000;" in CONFIG
-    assert "include conf/mime.types;" in CONFIG
-    assert "include conf/snippets/security-headers.conf;" in CONFIG
+    assert "include mime.types;" in CONFIG
+    assert "include snippets/security-headers.conf;" in CONFIG
     assert not re.search(r"ssl_protocols[^;]*(?:SSLv|TLSv1(?:\.0|\.1)?)(?:\s|;)", CONFIG)
 
 
 def test_https_redirect_hsts_ocsp_and_modern_tls() -> None:
     assert "listen 80 default_server;" in CONFIG
     assert "return 308 https://trading.example.com$request_uri;" in CONFIG
-    assert "listen 443 ssl;" in CONFIG
-    assert "ssl_certificate conf/certs/trading.example.com/fullchain.pem;" in CONFIG
-    assert "ssl_certificate_key conf/certs/trading.example.com/privkey.pem;" in CONFIG
-    assert "ssl_trusted_certificate conf/certs/trading.example.com/chain.pem;" in CONFIG
+    assert "listen 443 ssl default_server;" in CONFIG
+    assert "listen [::]:443 ssl default_server;" in CONFIG
+    assert "if ($host != trading.example.com) { return 444; }" in CONFIG
+    assert "ssl_certificate certs/trading.example.com/fullchain.pem;" in CONFIG
+    assert "ssl_certificate_key certs/trading.example.com/privkey.pem;" in CONFIG
+    assert "ssl_trusted_certificate certs/trading.example.com/chain.pem;" in CONFIG
     assert "ssl_protocols TLSv1.2 TLSv1.3;" in CONFIG
     assert "ECDHE-RSA-AES128-GCM-SHA256" in CONFIG
     assert "ssl_session_tickets off;" in CONFIG
@@ -78,8 +85,10 @@ def test_security_headers_are_fail_closed_and_cross_origin_aware() -> None:
 
 
 def test_static_cache_and_compression_contract() -> None:
-    assets = block("location ^~ /assets/")
+    assets = block("location /assets/")
     index = block("location = /index.html")
+    assert "location ^~ /assets/" not in CONFIG
+    assert "location ~* \\.(?:map|md|env|ini|log|sql)$" in CONFIG
     assert "max-age=31536000, immutable" in assets
     assert "try_files $uri =404;" in assets
     assert "no-store, no-cache, must-revalidate" in index
@@ -87,7 +96,8 @@ def test_static_cache_and_compression_contract() -> None:
     assert "gzip on;" in CONFIG
     assert "gzip_vary on;" in CONFIG
     assert "gzip_types" in CONFIG and "application/json" in CONFIG
-    assert "include conf/snippets/brotli.conf;" in CONFIG
+    assert "include snippets/brotli.conf;" in CONFIG
+    assert "include snippets/brotli.conf;" not in ACTIVE_CONFIG
     assert "brotli on;" in BROTLI
     assert "nginx -V" in BROTLI
 
@@ -118,7 +128,7 @@ def test_websocket_exact_and_prefix_proxy_are_unbuffered_and_bounded() -> None:
     for location in (exact, prefix):
         assert "limit_req zone=ws_per_ip burst=10 nodelay;" in location
         assert "limit_conn ws_conn_per_ip 20;" in location
-        assert "include conf/snippets/proxy-websocket.conf;" in location
+        assert "include snippets/proxy-websocket.conf;" in location
         assert "proxy_pass http://trading_backend;" in location
         assert "logs/websocket-access.log" in location
     assert "proxy_set_header Upgrade $http_upgrade;" in WEBSOCKET
@@ -162,4 +172,8 @@ def test_operational_scripts_exist_for_config_test_rotation_and_benchmark() -> N
     assert (scripts / "Test-NginxConfig.ps1").is_file()
     assert (scripts / "Rotate-NginxLogs.ps1").is_file()
     assert (scripts / "Benchmark-Nginx.ps1").is_file()
+    assert "[ValidateSet('/healthz')]" in BENCHMARK
+    assert "Add-Type -AssemblyName System.Net.Http" in BENCHMARK
+    assert "catch {" in BENCHMARK
+    assert "BaseUri must use HTTPS" in BENCHMARK
     assert (ROOT / "docs" / "deployment" / "windows-nginx.md").is_file()

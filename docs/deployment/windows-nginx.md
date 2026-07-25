@@ -4,13 +4,13 @@ Milestone 10.5 tetap memakai deployment native: satu Uvicorn worker pada `127.0.
 
 ## 1. Prasyarat dan placeholder
 
-Gunakan build Nginx Windows tepercaya yang mendukung OpenSSL modern, TLS 1.2/1.3, `stub_status`, `limit_req`, `limit_conn`, gzip, dan OCSP stapling. Template `frontend/nginx.conf` adalah full top-level config, bukan hanya `server` include.
+Gunakan build Nginx Windows tepercaya yang mendukung OpenSSL modern, TLS 1.2/1.3, `stub_status`, `limit_req`, `limit_conn`, gzip, dan OCSP stapling. Template `frontend/nginx.conf` adalah full top-level config, bukan hanya `server` include. Native Nginx Windows memakai satu worker; angka `worker_connections` tetap harus dibuktikan dengan capacity test pada binary target karena event model Windows dapat memberi batas efektif yang lebih rendah.
 
 Sebelum digunakan, ganti seluruh nilai berikut:
 
 - `trading.example.com` dengan hostname production yang tervalidasi DNS.
 - `C:/apps/xauusd-trading-bot/frontend/dist` bila release root berbeda.
-- `conf/certs/trading.example.com/fullchain.pem`, `privkey.pem`, dan `chain.pem` dengan certificate chain yang benar.
+- `certs/trading.example.com/fullchain.pem`, `privkey.pem`, dan `chain.pem` (berada di `C:/nginx/conf/certs/...` setelah instalasi) dengan certificate chain yang benar.
 - Resolver OCSP hanya bila kebijakan jaringan VPS tidak mengizinkan resolver template.
 
 Jangan menyimpan private key di repository. Batasi ACL `privkey.pem` ke akun Windows yang menjalankan Nginx dan administrator. HSTS template mencakup subdomain; pastikan semua subdomain sudah HTTPS sebelum go-live.
@@ -44,7 +44,7 @@ Script test hanya menjalankan `nginx -t`; script tidak start, stop, reload, atau
 
 ## 4. TLS, OCSP, dan header
 
-Port 80 hanya melayani local-only `/nginx/status`; request lain mendapat permanent redirect `308` ke hostname HTTPS tetap. TLS server hanya mengaktifkan TLS 1.2/1.3, cipher ECDHE modern, session cache tanpa session ticket, HSTS, dan OCSP stapling verification.
+Port 80 hanya melayani local-only `/nginx/status`; request lain mendapat permanent redirect `308` ke hostname HTTPS tetap. TLS server hanya mengaktifkan TLS 1.2/1.3, cipher ECDHE modern, session cache tanpa session ticket, HSTS, dan OCSP stapling verification. Listener HTTPS adalah default server tetapi menolak Host selain hostname production dengan status internal Nginx `444`, sehingga hostname asing tidak diteruskan ke backend.
 
 OCSP membutuhkan `fullchain.pem` dan issuer chain yang benar pada `ssl_trusted_certificate`, DNS resolver yang dapat dijangkau worker Nginx, serta certificate yang menyediakan responder OCSP. Warning stapling pada `error.log` harus diselesaikan sebelum rollout; jangan mematikan verification hanya untuk menghilangkan warning.
 
@@ -60,14 +60,14 @@ API menggunakan connect timeout 5 detik dan read/send timeout 120 detik. WebSock
 
 ## 6. Compression dan cache
 
-Gzip aktif untuk text, CSS, JavaScript, SVG, XML, manifest, dan JSON dengan `Vary: Accept-Encoding`. Asset Vite hashed di `/assets/` mendapat cache satu tahun dan `immutable`; `index.html` selalu `no-store, no-cache, must-revalidate` agar release baru ditemukan.
+Gzip aktif untuk text, CSS, JavaScript, SVG, XML, manifest, dan JSON dengan `Vary: Accept-Encoding`. Asset Vite hashed di `/assets/` mendapat cache satu tahun dan `immutable`; `index.html` selalu `no-store, no-cache, must-revalidate` agar release baru ditemukan. Prefix asset sengaja tidak memakai modifier `^~`, sehingga deny regex global tetap memblokir source map dan extension sensitif bila file tersebut tidak sengaja masuk ke build.
 
 Brotli tidak tersedia pada build Nginx standar tertentu dan directive yang tidak dikenal membuat configuration test gagal. Aktifkan hanya jika build yang dipasang menunjukkan modul Brotli yang kompatibel:
 
 ```powershell
 C:\nginx\nginx.exe -V 2>&1 | Select-String -Pattern brotli
 Copy-Item frontend\nginx\snippets\brotli.conf.example C:\nginx\conf\snippets\brotli.conf
-# Uncomment include conf/snippets/brotli.conf; in C:\nginx\conf\nginx.conf
+# Uncomment include snippets/brotli.conf; in C:\nginx\conf\nginx.conf
 .\scripts\Test-NginxConfig.ps1 -NginxRoot C:\nginx
 ```
 
@@ -112,7 +112,7 @@ Benchmark read-only dapat dijalankan terhadap `/healthz` pada host yang sudah te
 .\scripts\Benchmark-Nginx.ps1 -BaseUri https://trading.example.com -Requests 10000 -Concurrency 50
 ```
 
-Script menolak HTTP dan tidak menonaktifkan certificate validation. Jangan benchmark endpoint mutation, login, upload, atau broker.
+Script menolak HTTP, membatasi path ke read-only `/healthz`, tidak menonaktifkan certificate validation, dan tetap mengeluarkan ringkasan bila request individual gagal. Jangan benchmark endpoint mutation, login, upload, atau broker.
 
 ## 9. Log rotation
 
