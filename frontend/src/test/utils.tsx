@@ -3,8 +3,9 @@ import { render } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { vi } from 'vitest'
 import { AppRoutes } from '../App'
-import { ApiError, api } from '../api/client'
-import type { AnalysisSnapshot, BacktestDetail, BacktestSummary, DemoDeal, DemoExecution, DemoOrder, DemoPosition, DemoStatus, MarketTick, PaperAccount, PaperEngineStatus, PaperPosition, RiskSettings, Signal, TradePlan } from '../api/types'
+import { ApiError, api, type AuthUser } from '../api/client'
+import type { AnalysisSnapshot, BacktestDetail, BacktestSummary, DemoDeal, DemoExecution, DemoOrder, DemoPosition, DemoStatus, FullHealth, MarketTick, PaperAccount, PaperEngineStatus, PaperPosition, RiskFeasibilityResult, RiskSettings, SafetyStatus, Signal, TradePlan } from '../api/types'
+import { AuthProvider } from '../auth/AuthProvider'
 import { ToastProvider } from '../components/ui'
 
 export const tick: MarketTick = {
@@ -27,6 +28,43 @@ export const plan: TradePlan = {
   risk_reward: 2, spread_points: 20, balance: 10000, equity: 10000,
   calculation_details: { source: 'MT5 demo read-only' }, validation_reasons: ['Risk locks passed'],
   rejection_reasons: [], status: 'APPROVED', created_at: '2026-07-22T10:01:00Z',
+}
+
+export const feasibilityResult: RiskFeasibilityResult = {
+  source_signal_id: 'signal-1', symbol: 'XAUUSDm', direction: 'BUY', status: 'INFEASIBLE',
+  recommendation: 'DO_NOT_FORCE_MINIMUM_LOT', analysis_timestamp: '2026-07-22T10:00:01Z',
+  snapshot_timestamps: {
+    captured_at: '2026-07-22T10:00:01Z', account_at: '2026-07-22T10:00:01Z',
+    symbol_at: '2026-07-22T10:00:01Z', tick_at: '2026-07-22T10:00:00Z', fresh_until: '2099-07-22T10:01:00Z',
+  },
+  account: {
+    currency: 'USD', balance: '100.00', equity: '100.00', risk_base_type: 'EQUITY',
+    risk_base_value: '100.00', configured_risk_percent: '1',
+  },
+  market: {
+    entry_price: '3000.30', stop_loss_price: '2995.30', stop_distance: '5.00',
+    stop_distance_points: '5000', trade_tick_size: '0.001', trade_tick_value: '0.1', point: '0.001',
+  },
+  volume: {
+    raw_lot: '0.0020000000000000000001', capped_lot: '0.0020000000000000000001', normalized_lot: '0.00',
+    volume_min: '0.01', minimum_broker_lot: '0.01', volume_max: '100', volume_step: '0.01',
+  },
+  calculation: {
+    risk_amount: '1.00', ticks_at_risk: '5000', risk_per_lot: '500', required_minimum_risk_base: '500.00',
+    required_minimum_risk_base_type: 'EQUITY', required_minimum_equity: '500.00',
+    required_minimum_equity_applicability: 'APPLICABLE', maximum_stop_distance: '1.00',
+    maximum_stop_distance_points: '1000', boundary_stop_loss_price: '2999.30',
+    minimum_lot_estimated_risk_amount: '5.00', minimum_lot_estimated_risk_percent: '5.00',
+    minimum_lot_risk_delta_amount: '4.00', minimum_lot_risk_delta_percent: '4.00',
+    minimum_lot_label: 'DIAGNOSTIC_ONLY',
+  },
+  reasons: [
+    { code: 'NORMALIZED_LOT_BELOW_BROKER_MINIMUM', message: 'Floor-normalized volume is below the executable broker minimum.' },
+    { code: 'STOP_DISTANCE_EXCEEDS_FEASIBLE_MAXIMUM', message: 'The current stop distance is wider than the advisory maximum for the configured risk.' },
+  ],
+  units: { currency: 'USD', percent: '%', volume: 'lot', price: 'XAUUSDm price unit', point: 'point', tick_derived: 'USD per lot' },
+  advisory: true,
+  disclaimer: 'Advisory only. Risk Management and Trade Plan creation remain authoritative. No plan or order was created.',
 }
 
 export const paperStatus: PaperEngineStatus = {
@@ -120,8 +158,60 @@ export const demoDeal: DemoDeal = {
   executed_at: '2026-07-25T10:00:01Z', created_at: '2026-07-25T10:00:01Z',
 }
 
+export const safetyStatus: SafetyStatus = {
+  allowed: true,
+  emergency: { active: false, reason: null, activated_at: null },
+  circuit_breaker: {
+    state: 'CLOSED', error_count: 0, threshold: 5,
+    opened_at: null, open_until: null,
+  },
+  heartbeat_status: 'HEALTHY',
+  guardians: {
+    ConnectionGuardian: { allowed: true, reason: null, details: {} },
+    SpreadGuardian: { allowed: true, reason: null, details: {} },
+  },
+}
+
+export const fullHealth: FullHealth = {
+  status: 'HEALTHY', checked_at: '2026-07-25T10:00:00Z', uptime_seconds: 60,
+  heartbeat_interval_seconds: 5, last_heartbeat_at: '2026-07-25T10:00:00Z',
+  components: {
+    database: { status: 'HEALTHY' }, mt5: { status: 'HEALTHY' },
+    backend: { status: 'HEALTHY' }, websocket: { status: 'HEALTHY' },
+    market: { status: 'HEALTHY' }, risk: { status: 'HEALTHY' },
+    paper: { status: 'HEALTHY' }, backtest: { status: 'HEALTHY' },
+    frontend: { status: 'HEALTHY', build: 'vite' },
+  },
+  safety: safetyStatus, version: '0.9.5', build: 'milestone-9.5',
+}
+
+export const authUser: AuthUser = {
+  user_id: 'user-1', username: 'operator', role: 'SUPER_ADMIN',
+  permissions: [
+    'analysis:generate', 'mt5:control', 'risk:settings:update', 'trade-plan:create',
+    'paper:control', 'paper:trade', 'backtest:submit', 'backtest:cancel',
+    'demo:execute', 'demo:position:manage', 'demo:settings:update',
+    'emergency-stop:execute', 'safety:reset',
+  ],
+  is_active: true,
+  access_expires_at: '2099-07-25T10:00:00Z',
+}
+
 export function mockApi() {
-  vi.spyOn(api, 'health').mockResolvedValue({ status: 'healthy', service: 'Trading Bot', environment: 'test', database: 'connected' })
+  vi.spyOn(api, 'login').mockResolvedValue(authUser)
+  vi.spyOn(api, 'refreshAuth').mockResolvedValue(authUser)
+  vi.spyOn(api, 'logout').mockResolvedValue(undefined)
+  vi.spyOn(api, 'me').mockResolvedValue(authUser)
+  vi.spyOn(api, 'health').mockResolvedValue({ status: 'healthy', service: 'Trading Bot', version: '0.10.1' })
+  vi.spyOn(api, 'healthFull').mockResolvedValue(fullHealth)
+  vi.spyOn(api, 'safetyStatus').mockResolvedValue(safetyStatus)
+  vi.spyOn(api, 'safetyEmergencyStop').mockResolvedValue({
+    ...safetyStatus,
+    allowed: false,
+    emergency: { active: true, reason: 'operator stop', activated_at: '2026-07-25T10:00:00Z' },
+  })
+  vi.spyOn(api, 'safetyEmergencyReset').mockResolvedValue(safetyStatus)
+  vi.spyOn(api, 'safetyEvents').mockResolvedValue([])
   vi.spyOn(api, 'mt5Status').mockResolvedValue({ state: 'connected', connected: true, demo_verified: true, configured: true, symbol: 'XAUUSDm', last_error: null })
   vi.spyOn(api, 'tick').mockResolvedValue(tick)
   vi.spyOn(api, 'mt5Account').mockResolvedValue({ login: 12345678, is_demo: true, trade_mode: 'demo', server: 'Broker-Demo', company: 'Broker', currency: 'USD', leverage: 100, balance: 10000, equity: 10000, margin: 0, margin_free: 10000, margin_level: 0 })
@@ -135,6 +225,7 @@ export function mockApi() {
   vi.spyOn(api, 'riskSettings').mockResolvedValue(riskSettings)
   vi.spyOn(api, 'updateRiskSettings').mockResolvedValue(riskSettings)
   vi.spyOn(api, 'riskStatus').mockResolvedValue({ date: '2026-07-22', account_available: true, demo_verified: true, risk_locked: false, risk_lock_reasons: [], state: null })
+  vi.spyOn(api, 'riskFeasibility').mockResolvedValue(feasibilityResult)
   vi.spyOn(api, 'tradePlans').mockResolvedValue([plan])
   vi.spyOn(api, 'tradePlan').mockResolvedValue(plan)
   vi.spyOn(api, 'createTradePlan').mockResolvedValue(plan)
@@ -169,10 +260,10 @@ export function mockApi() {
   vi.spyOn(api, 'reconcileDemo').mockResolvedValue({ run_id: 'run-1', status: 'COMPLETED', adopted_count: 0, updated_count: 1, missing_count: 0, trades_count: 1, started_at: '2026-07-25T10:00:00Z', completed_at: '2026-07-25T10:00:01Z' })
 }
 
-export function renderRoute(path: string) {
+export function renderRoute(path: string, user: AuthUser | null = authUser) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } } })
   window.history.pushState({}, '', path)
-  return render(<QueryClientProvider client={client}><ToastProvider><MemoryRouter initialEntries={[path]}><AppRoutes /></MemoryRouter></ToastProvider></QueryClientProvider>)
+  return render(<QueryClientProvider client={client}><ToastProvider><MemoryRouter initialEntries={[path]}><AuthProvider initialUser={user}><AppRoutes /></AuthProvider></MemoryRouter></ToastProvider></QueryClientProvider>)
 }
 
 export const noLatestSignal = new ApiError('No signal has been stored', 404)

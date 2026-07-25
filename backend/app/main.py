@@ -1,9 +1,12 @@
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
+from datetime import datetime, time, timezone
 import logging
+from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.analysis.candle_confirmation import CandleConfirmationDetector
 from app.analysis.engine import StrategyEngine
@@ -14,12 +17,13 @@ from app.analysis.scoring import SignalScoringService
 from app.analysis.service import AnalysisService
 from app.analysis.support_resistance import SupportResistanceDetector
 from app.analysis.validator import SignalValidator
+from app.auth.middleware import request_context_middleware
+from app.auth.service import AuthService
 from app.backtest.engine import BacktestEngine
 from app.backtest.repository import BacktestRepository
 from app.api.router import api_router
 from app.config.settings import Settings, get_settings
 from app.database.session import SessionFactory, close_database
-from app.demo.guard import BoundedRateLimiter
 from app.demo.repository import DemoRepository
 from app.demo.service import DemoTradingService
 from app.market_data.service import MarketDataService
@@ -31,6 +35,17 @@ from app.paper.repository import PaperRepository
 from app.paper.services import PaperAccountService, PaperTradingStatisticsService
 from app.risk.repository import RiskRepository
 from app.risk.service import TradePlanService
+from app.risk_feasibility.gateway import ReadOnlyRiskSnapshotGateway
+from app.risk_feasibility.reader import RiskSettingsReader
+from app.risk_feasibility.service import RiskFeasibilityService
+from app.safety.audit import AuditTrail
+from app.safety.circuit import CircuitBreaker
+from app.safety.emergency import EmergencyStopManager
+from app.safety.guardians import NewsGuardian, TradingSessionGuardian
+from app.safety.manager import SafetyManager
+from app.safety.monitor import HealthMonitor, HeartbeatMonitor
+from app.safety.repository import SafetyRepository
+from app.websocket.hub import WebSocketHub
 
 
 def create_app(
@@ -41,10 +56,16 @@ def create_app(
     paper_engine: PaperTradingEngine | None = None,
     backtest_engine: BacktestEngine | None = None,
     demo_service: DemoTradingService | None = None,
+    safety_manager: SafetyManager | None = None,
+    risk_feasibility_service: RiskFeasibilityService | None = None,
+    auth_service: AuthService | None = None,
+    backtest_repository_override: BacktestRepository | None = None,
 ) -> FastAPI:
     settings = app_settings or get_settings()
+    authentication = auth_service or AuthService(SessionFactory, settings)
     manager = mt5_manager or MT5ConnectionManager(MetaTrader5Client(), settings)
     market_data_service = MarketDataService(manager, settings)
+    websocket_hub = WebSocketHub(market_data_service, authentication, settings)
     signal_repository = SignalRepository(SessionFactory)
     analysis = analysis_service or AnalysisService(
         market_data_service,
@@ -57,6 +78,13 @@ def create_app(
     )
     risk = trade_plan_service or TradePlanService(
         manager, settings, signal_repository, RiskRepository(SessionFactory)
+    )
+    feasibility = risk_feasibility_service or RiskFeasibilityService(
+        signal_repository,
+        RiskSettingsReader(SessionFactory),
+        ReadOnlyRiskSnapshotGateway(
+            manager, lambda: datetime.now(timezone.utc)
+        ),
     )
     paper_repository = PaperRepository(SessionFactory)
     paper_accounts = PaperAccountService(paper_repository, settings)
@@ -72,12 +100,77 @@ def create_app(
     paper_statistics = PaperTradingStatisticsService(
         paper_repository, paper_accounts
     )
-    backtest_repository = BacktestRepository(SessionFactory)
-    backtest = backtest_engine or BacktestEngine(
-        backtest_repository, manager, settings
-    )
+    backtest_database_engine = None
+    if backtest_engine is None:
+        if backtest_repository_override is None:
+            backtest_database_engine = create_async_engine(
+                settings.database_url, echo=settings.app_debug, pool_pre_ping=True
+            )
+            backtest_repository = BacktestRepository(
+                async_sessionmaker(backtest_database_engine, expire_on_commit=False)
+            )
+        else:
+            backtest_repository = backtest_repository_override
+        backtest = BacktestEngine(backtest_repository, manager, settings)
+    else:
+        backtest = backtest_engine
+        engine_repository = getattr(backtest, "repository", None)
+        if (
+            backtest_repository_override is not None
+            and engine_repository is not None
+            and engine_repository is not backtest_repository_override
+        ):
+            raise ValueError(
+                "backtest engine and route repository must use the same instance"
+            )
+        backtest_repository = (
+            backtest_repository_override
+            or engine_repository
+            or BacktestRepository(SessionFactory)
+        )
     demo_repository = DemoRepository(SessionFactory)
-    demo = demo_service or DemoTradingService(manager, demo_repository, risk, settings)
+    safety_repository = SafetyRepository(SessionFactory)
+    audit_trail = AuditTrail(safety_repository)
+    emergency = EmergencyStopManager(
+        safety_repository, audit_trail, demo_repository
+    )
+    circuit_breaker = CircuitBreaker(
+        threshold=settings.safety_circuit_error_threshold,
+        window_minutes=settings.safety_circuit_window_minutes,
+        lock_minutes=settings.safety_circuit_lock_minutes,
+    )
+    active_sessions = tuple(
+        value.strip().upper()
+        for value in settings.safety_active_sessions.split(",") if value.strip()
+    )
+    custom_end = (
+        time(23, 59, 59) if settings.safety_custom_end_hour == 24
+        else time(settings.safety_custom_end_hour)
+    )
+    safety = safety_manager or SafetyManager(
+        emergency, circuit_breaker, audit_trail, safety_repository,
+        TradingSessionGuardian(
+            active_sessions=active_sessions,
+            custom_timezone=settings.safety_custom_timezone,
+            custom_start=time(settings.safety_custom_start_hour),
+            custom_end=custom_end,
+        ),
+        NewsGuardian(
+            settings.safety_news_blackout_before_minutes,
+            settings.safety_news_blackout_after_minutes,
+            settings.safety_news_required,
+        ),
+    )
+    manager.set_pre_send_guard(safety.fast_guard)
+    manages_safety_lifespan = demo_service is None or safety_manager is not None
+    demo = demo_service or DemoTradingService(
+        manager, demo_repository, risk, settings, safety, safety_repository
+    )
+    heartbeat = HeartbeatMonitor(
+        safety, SessionFactory, manager, safety_repository, audit_trail,
+        settings.safety_heartbeat_interval_seconds,
+    )
+    health_monitor = HealthMonitor(safety, heartbeat)
     logging.basicConfig(
         level=getattr(logging, settings.log_level.upper(), logging.INFO),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -85,36 +178,54 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        initializer = getattr(demo, "initialize", None)
-        if settings.demo_execution_enabled and initializer is not None:
-            await initializer()
-        try:
+        async with AsyncExitStack() as cleanup:
+            if backtest_database_engine is not None:
+                cleanup.push_async_callback(backtest_database_engine.dispose)
+            cleanup.push_async_callback(close_database)
+            cleanup.push_async_callback(manager.disconnect)
+            cleanup.push_async_callback(paper.shutdown)
+            connector_starter = getattr(manager, "start_connector", None)
+            if connector_starter is not None:
+                await connector_starter()
+            await websocket_hub.start()
+            cleanup.push_async_callback(websocket_hub.stop)
+
+            backtest_starter = getattr(backtest, "start", None)
+            if backtest_starter is not None:
+                await backtest_starter()
+                cleanup.push_async_callback(backtest.shutdown)
+
+            initializer = getattr(demo, "initialize", None)
+            if settings.demo_execution_enabled and initializer is not None:
+                await initializer()
+            if (
+                settings.safety_enabled
+                and settings.demo_execution_enabled
+                and manages_safety_lifespan
+            ):
+                await safety.initialize()
+                await heartbeat.run_once()
+                await heartbeat.start()
+                cleanup.push_async_callback(heartbeat.stop)
             yield
-        finally:
-            try:
-                await backtest.shutdown()
-            finally:
-                try:
-                    await paper.shutdown()
-                finally:
-                    try:
-                        await manager.disconnect()
-                    finally:
-                        await close_database()
 
     application = FastAPI(
         title=settings.app_name,
-        version="0.9.0",
+        version="0.10.2",
         debug=settings.app_debug,
         lifespan=lifespan,
-        docs_url="/docs" if settings.app_env != "production" else None,
+        docs_url=None,
+        openapi_url=None,
         redoc_url=None,
     )
     application.state.settings = settings
+    application.state.auth_service = authentication
     application.state.mt5_manager = manager
     application.state.market_data_service = market_data_service
+    application.state.websocket_hub = websocket_hub
     application.state.analysis_service = analysis
     application.state.trade_plan_service = risk
+    application.state.risk_feasibility_service = feasibility
     application.state.paper_engine = paper
     application.state.paper_account_service = paper_accounts
     application.state.paper_position_service = paper_positions
@@ -123,20 +234,32 @@ def create_app(
     application.state.backtest_engine = backtest
     application.state.demo_repository = demo_repository
     application.state.demo_service = demo
-    application.state.demo_rate_limiter = BoundedRateLimiter(
-        settings.demo_rate_limit_requests,
-        settings.demo_rate_limit_window_seconds,
-        settings.demo_rate_limit_max_clients,
-    )
+    application.state.safety_repository = safety_repository
+    application.state.safety_manager = safety
+    application.state.heartbeat_monitor = heartbeat
+    application.state.health_monitor = health_monitor
     application.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
-        allow_credentials=False,
+        allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=[
-            "Accept", "Content-Type", "X-Admin-Token", "X-Idempotency-Key"
+            "Accept", "Content-Type", "X-CSRF-Token",
+            "X-Idempotency-Key", "X-Request-ID",
         ],
     )
+
+    @application.middleware("http")
+    async def authentication_and_audit(request: Request, call_next: Any) -> Any:
+        return await request_context_middleware(request, call_next)
+
+    @application.middleware("http")
+    async def no_store_risk_feasibility(request: Request, call_next: Any) -> Any:
+        response = await call_next(request)
+        if request.url.path.endswith("/risk/feasibility"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
     application.include_router(api_router, prefix=settings.api_v1_prefix)
     return application
 

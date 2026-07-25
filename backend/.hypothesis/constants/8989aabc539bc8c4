@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\api\routes\mt5.py
+# hypothesis_version: 6.151.9
+
+['/account', '/connect', '/disconnect', '/mt5', '/status', '/symbol', '/terminal', 'mt5']

@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\analysis\scoring.py
+# hypothesis_version: 6.151.9
+
+[100, 'candle_confirmation', 'data_quality', 'factor', 'market_structure', 'passed', 'points', 'rsi_filter', 'setup_alignment', 'spread_filter', 'trend_alignment', 'weight']

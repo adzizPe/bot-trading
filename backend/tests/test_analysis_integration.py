@@ -71,5 +71,7 @@ def test_analysis_api_with_demo_account() -> None:
         assert generated.status_code == 200
         assert generated.json()["direction"] in {"BUY", "SELL", "HOLD"}
         assert api.get("/api/v1/analysis/latest-signal").status_code == 200
-        assert "/api/v1/analysis/signal" in api.get("/openapi.json").json()["paths"]
+        assert "/api/v1/analysis/signal" in api.app.openapi()[  # type: ignore[attr-defined]
+            "paths"
+        ]
         assert api.post("/api/v1/mt5/disconnect").status_code == 200

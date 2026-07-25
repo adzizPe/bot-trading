@@ -5,6 +5,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.main import create_app
 from app.mt5.manager import MT5ConnectionManager
+from tests.auth_helpers import authenticate_app, auth_headers
 from tests.fakes import FakeMT5Client
 from tests.test_mt5_manager import make_settings
 
@@ -31,10 +32,12 @@ async def test_mt5_read_only_endpoints() -> None:
     )
     manager = MT5ConnectionManager(client, settings)
     application = create_app(settings, manager)
+    authenticate_app(application)
 
     async with application.router.lifespan_context(application):
         transport = ASGITransport(app=application)
-        async with AsyncClient(transport=transport, base_url="http://test") as api:
+        async with AsyncClient(transport=transport, base_url="http://test",
+                               headers=auth_headers()) as api:
             assert (await api.get("/api/v1/mt5/status")).status_code == 200
             assert (await api.post("/api/v1/mt5/connect")).status_code == 200
             assert (await api.get("/api/v1/mt5/account")).json()["is_demo"] is True

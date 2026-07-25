@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { api, setDemoAdminToken } from '../api/client'
+import { api } from '../api/client'
 import { backtest, backtestDetail, mockApi, paperStatus, position, renderRoute } from '../test/utils'
 
 describe('risk and trade plan flows', () => {
@@ -20,7 +20,6 @@ describe('risk and trade plan flows', () => {
 
   it('shows paper and guarded manual-demo actions for an approved plan', async () => {
     const user = userEvent.setup()
-    setDemoAdminToken('runtime-demo-admin-secret')
     renderRoute('/trade-plans')
     await user.click(await screen.findByRole('button', { name: 'Detail' }))
     expect(screen.getByRole('dialog', { name: 'Trade plan detail' })).toHaveTextContent('Risk locks passed')

@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\safety\circuit.py
+# hypothesis_version: 6.151.9
+
+['CLOSED', 'OPEN', 'error_count', 'open_until', 'opened_at', 'state', 'threshold']

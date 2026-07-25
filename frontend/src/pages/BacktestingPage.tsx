@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Download, FlaskConical, XCircle } from 'lucide-react'
 import { api, downloadBacktestCsv, sanitizeMessage } from '../api/client'
 import type { BacktestRequest, BacktestTrade } from '../api/types'
+import { usePermission } from '../auth/AuthProvider'
 import { DrawdownChart, EquityChart } from '../components/charts'
 import { ConfirmDialog, DataTable, EmptyState, ErrorAlert, MetricCard, PnLDisplay, PageHeader, Panel, StatusBadge, dateTime, money, number, useToast } from '../components/ui'
 
@@ -24,6 +25,8 @@ const initialForm: BacktestRequest = {
 export function BacktestingPage() {
   const queryClient = useQueryClient()
   const { notify } = useToast()
+  const canSubmit = usePermission('backtest:submit')
+  const canCancel = usePermission('backtest:cancel')
   const [form, setForm] = useState(initialForm)
   const [validation, setValidation] = useState('')
   const [activeId, setActiveId] = useState('')
@@ -50,6 +53,7 @@ export function BacktestingPage() {
   const stats = detail.data?.statistics
   const submit = (event: FormEvent) => {
     event.preventDefault()
+    if (!canSubmit) return
     if (!form.symbol.trim()) return setValidation('Symbol wajib diisi')
     if (new Date(form.start_date) >= new Date(form.end_date)) return setValidation('Start date harus sebelum end date')
     if (form.initial_balance <= 0 || form.risk_per_trade_percent <= 0) return setValidation('Balance dan risk harus lebih besar dari nol')
@@ -79,7 +83,7 @@ export function BacktestingPage() {
       {form.source === 'CSV' && <label className="field">CSV server path<input value={form.csv_path || ''} onChange={(event) => setForm({ ...form, csv_path: event.target.value })} /></label>}
       <label className="check-field"><input type="checkbox" checked={form.close_open_positions_at_end} onChange={(event) => setForm({ ...form, close_open_positions_at_end: event.target.checked })} />Close positions at end</label>
       {validation && <div className="form-error" role="alert">{validation}</div>}
-      <div className="form-actions"><button className="button button-primary" disabled={start.isPending}><FlaskConical size={16} />{start.isPending ? 'Starting…' : 'Start backtest'}</button></div>
+      {canSubmit && <div className="form-actions"><button className="button button-primary" disabled={start.isPending}><FlaskConical size={16} />{start.isPending ? 'Starting…' : 'Start backtest'}</button></div>}
     </form></Panel>
     <Panel title="Backtest runs"><DataTable rows={list.data || []} rowKey={(item) => item.backtest_id} columns={[
       { key: 'created', header: 'Created', cell: (item) => dateTime(item.created_at) },
@@ -89,7 +93,7 @@ export function BacktestingPage() {
       { key: 'detail', header: '', cell: (item) => <button className="button button-ghost" onClick={() => setActiveId(item.backtest_id)}>View</button> },
     ]} /></Panel>
     {selectedId && <Panel title={`Run ${selectedId.slice(0, 8)}`} subtitle={active?.strategy_name || detail.data?.strategy_name} actions={<div className="page-actions">
-      {detail.data && ['PENDING', 'RUNNING'].includes(detail.data.status) && <button className="button button-danger" onClick={() => setCancel(true)}><XCircle size={16} />Cancel</button>}
+      {canCancel && detail.data && ['PENDING', 'RUNNING'].includes(detail.data.status) && <button className="button button-danger" onClick={() => setCancel(true)}><XCircle size={16} />Cancel</button>}
       {detail.data?.status === 'COMPLETED' && <button className="button button-primary" onClick={() => download.mutate()} disabled={download.isPending}><Download size={16} />Download CSV</button>}
     </div>}>
       {detail.error && <ErrorAlert message={sanitizeMessage(detail.error)} retry={() => detail.refetch()} />}

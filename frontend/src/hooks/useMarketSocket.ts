@@ -25,8 +25,15 @@ export function useMarketSocket(symbol?: string) {
       }
       socket.onmessage = (event) => {
         try {
-          const value = JSON.parse(String(event.data)) as MarketTick & { type?: string }
-          if (value.type === 'error') {
+          const value = JSON.parse(String(event.data)) as MarketTick & {
+            type?: string
+            timestamp?: string
+          }
+          if (value.type === 'ping') {
+            socket?.send(JSON.stringify({ type: 'pong', timestamp: value.timestamp }))
+          } else if (value.type === 'pong' || value.type === 'subscribed') {
+            return
+          } else if (value.type === 'error') {
             setStatus('error')
           } else {
             setTick(value)
@@ -36,8 +43,12 @@ export function useMarketSocket(symbol?: string) {
         }
       }
       socket.onerror = () => setStatus('error')
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         if (disposed) return
+        if ([1000, 4401, 4403].includes(event.code)) {
+          setStatus(event.code === 1000 ? 'disconnected' : 'error')
+          return
+        }
         attempts.current += 1
         setStatus('reconnecting')
         timer = setTimeout(connect, Math.min(1000 * 2 ** attempts.current, 15000))

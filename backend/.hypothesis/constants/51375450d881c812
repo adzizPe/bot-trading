@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\analysis\indicators.py
+# hypothesis_version: 6.151.9
+
+[0.0, 50.0, 100.0, 100, 'atr', 'candle_time', 'close', 'data_valid', 'ema_fast', 'ema_fast_previous', 'ema_slow', 'ema_slow_previous', 'high', 'low', 'market_structure', 'resistance_levels', 'rsi', 'structure', 'structure_details', 'support_levels', 'symbol', 'timeframe', 'timestamp']

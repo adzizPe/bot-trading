@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\risk_feasibility\validator.py
+# hypothesis_version: 6.151.9
+
+['BUY', 'SELL', 'balance', 'entry_price', 'equity', 'point', 'risk_base_value', 'risk_percent', 'stop_loss_price', 'trade_tick_size', 'trade_tick_value', 'volume_max', 'volume_min', 'volume_step']

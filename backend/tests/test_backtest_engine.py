@@ -43,7 +43,7 @@ class ReadOnlyManager:
         return symbol, object(), rows
 
 
-def request(source: str, csv_path: str | None = None) -> dict[str, Any]:
+def request(source: str, csv_upload_id: str | None = None) -> dict[str, Any]:
     return {
         "symbol": "XAUUSD", "start_date": "2026-01-05",
         "end_date": "2026-01-06", "initial_balance": 10000,
@@ -55,7 +55,8 @@ def request(source: str, csv_path: str | None = None) -> dict[str, Any]:
         "trading_sessions": [],
         "strategy_name": "EMA_RSI_ATR_MTF_V1", "strategy_settings": {},
         "risk_settings": {}, "close_open_positions_at_end": True,
-        "same_bar_policy": "SL_FIRST", "source": source, "csv_path": csv_path,
+        "same_bar_policy": "SL_FIRST", "source": source,
+        "timeframe": "M5", "csv_upload_id": csv_upload_id,
     }
 
 
@@ -79,7 +80,8 @@ async def test_submit_tracks_background_task_and_csv_completes(tmp_path: Path) -
         rows.append(f"{timestamp.isoformat()},100,101,99,100,1,2")
     csv_path.write_text("\n".join(rows), encoding="utf-8")
     db, repository, manager, service = await harness()
-    job = await service.submit(request("CSV", str(csv_path)))
+    upload = await service.upload_store.stage_path(csv_path)
+    job = await service.submit(request("CSV", upload["upload_id"]))
     assert job["status"] == "PENDING"
     task = service.active_tasks[job["backtest_id"]]
     await task
@@ -116,11 +118,13 @@ async def test_shutdown_requests_cooperative_cancellation(tmp_path: Path) -> Non
         rows.append(f"{timestamp.isoformat()},100,101,99,100,1")
     csv_path.write_text("\n".join(rows), encoding="utf-8")
     db, repository, _, service = await harness()
-    job = await service.submit(request("CSV", str(csv_path)))
+    upload = await service.upload_store.stage_path(csv_path)
+    job = await service.submit(request("CSV", upload["upload_id"]))
     await service.shutdown()
     detail = await repository.get(job["backtest_id"])
-    assert detail is not None and detail["status"] == "CANCELLED"
-    assert detail["cancel_requested"] is True
+    assert detail is not None and detail["status"] == "FAILED"
+    assert detail["error_message"] == "SERVER_SHUTDOWN"
+    assert detail["cancel_requested"] is False
     await db.dispose()
 
 

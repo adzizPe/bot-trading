@@ -80,7 +80,7 @@ class DemoRepository:
                 session.add(model)
             model.status = status
             model.last_error = error
-            model.emergency_stopped_at = now if status == "EMERGENCY_STOPPED" else None
+            model.emergency_stopped_at = now if status == "EMERGENCY_STOP" else None
             model.updated_at = now
             await session.commit()
             await session.refresh(model)
@@ -224,6 +224,15 @@ class DemoRepository:
             raise DemoValidationError("Maximum open demo positions reached")
         if trades_count >= int(risk_settings["max_trades_per_day"]):
             raise DemoValidationError("Maximum demo trades per day reached")
+
+    async def get_execution_by_trade_plan(
+        self, trade_plan_id: str
+    ) -> dict[str, Any] | None:
+        async with self._session_factory() as session:
+            model = await session.scalar(select(DemoOrderIntent).where(
+                DemoOrderIntent.trade_plan_id == trade_plan_id
+            ))
+            return self._execution_view(model) if model else None
 
     async def get_execution_by_idempotency_key(
         self, idempotency_key: str

@@ -11,10 +11,10 @@ class DemoStateMachine:
     RISK_LOCKED = "RISK_LOCKED"
     CONNECTION_LOST = "CONNECTION_LOST"
     ERROR = "ERROR"
-    EMERGENCY_STOPPED = "EMERGENCY_STOPPED"
+    EMERGENCY_STOP = "EMERGENCY_STOP"
     STATUSES = {
         STOPPED, STARTING, RUNNING, PAUSED, RISK_LOCKED,
-        CONNECTION_LOST, ERROR, EMERGENCY_STOPPED,
+        CONNECTION_LOST, ERROR, EMERGENCY_STOP,
     }
 
     @classmethod
@@ -24,8 +24,8 @@ class DemoStateMachine:
 
     @classmethod
     def start(cls, status: str) -> str:
-        if status == cls.EMERGENCY_STOPPED:
-            raise DemoStateError("Emergency-stopped engine must be stopped before restart")
+        if status == cls.EMERGENCY_STOP:
+            raise DemoStateError("Emergency-stopped engine must be reset before restart")
         return cls.RUNNING
 
     @classmethod

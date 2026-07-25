@@ -18,9 +18,10 @@ class TradingSession(BaseModel):
 class BacktestRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    symbol: str = Field(default="XAUUSD", min_length=1, max_length=32)
+    symbol: str = Field(default="XAUUSD", min_length=1, max_length=32, pattern=r"^[A-Za-z0-9._-]+$")
     start_date: date | datetime
     end_date: date | datetime
+    timeframe: Literal["M5"] = "M5"
     initial_balance: float = Field(default=10_000, gt=0)
     risk_per_trade_percent: float = Field(default=1, gt=0, le=100)
     maximum_open_positions: int = Field(default=1, ge=1)
@@ -41,16 +42,16 @@ class BacktestRequest(BaseModel):
     close_open_positions_at_end: bool = True
     same_bar_policy: Literal["SL_FIRST", "TP_FIRST"] = "SL_FIRST"
     source: Literal["MT5", "CSV"] = "MT5"
-    csv_path: str | None = None
+    csv_upload_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
 
     @model_validator(mode="after")
     def validate_range_and_source(self) -> "BacktestRequest":
         if self._instant(self.start_date, end=False) >= self._instant(self.end_date, end=True):
             raise ValueError("start_date must be before end_date")
-        if self.source == "CSV" and not self.csv_path:
-            raise ValueError("csv_path is required when source is CSV")
-        if self.source == "MT5" and self.csv_path is not None:
-            raise ValueError("csv_path is only valid when source is CSV")
+        if self.source == "CSV" and not self.csv_upload_id:
+            raise ValueError("csv_upload_id is required when source is CSV")
+        if self.source == "MT5" and self.csv_upload_id is not None:
+            raise ValueError("csv_upload_id is only valid when source is CSV")
         if self.use_historical_spread and self.spread_mode != "HISTORICAL":
             raise ValueError("use_historical_spread requires HISTORICAL spread_mode")
         return self
@@ -60,6 +61,40 @@ class BacktestRequest(BaseModel):
         if isinstance(value, datetime):
             return value.replace(tzinfo=value.tzinfo or timezone.utc).astimezone(timezone.utc)
         return datetime.combine(value, time.max if end else time.min, timezone.utc)
+
+
+class BacktestUploadResponse(BaseModel):
+    upload_id: str
+    size: int
+    row_count: int
+
+
+class BacktestQueueResponse(BaseModel):
+    accepting: bool
+    running_ids: list[str]
+    pending_ids: list[str]
+    running_count: int
+    pending_count: int
+    running_capacity: int
+    pending_capacity: int
+
+
+class BacktestResourcesResponse(BaseModel):
+    estimated_candles: int
+    estimated_memory_bytes: int
+    staged_bytes: int
+    admitted_jobs: int
+
+
+class BacktestLimitsResponse(BaseModel):
+    max_backtest_jobs: int
+    max_pending_jobs: int
+    max_candles: int
+    max_date_range_days: int
+    max_csv_size_mb: int
+    max_csv_rows: int
+    max_memory_budget_mb: int
+    job_timeout_minutes: int
 
 
 class BacktestSummary(BaseModel):

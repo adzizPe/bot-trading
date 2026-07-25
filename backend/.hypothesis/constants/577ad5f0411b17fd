@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\main.py
+# hypothesis_version: 6.151.9
+
+[',', '/risk/feasibility', '0.10.1', 'Accept', 'Cache-Control', 'Content-Type', 'DELETE', 'GET', 'OPTIONS', 'POST', 'PUT', 'X-CSRF-Token', 'X-Idempotency-Key', 'X-Request-ID', 'http', 'initialize', 'no-store']

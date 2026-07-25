@@ -48,7 +48,7 @@ export function OverviewPage() {
       {loading && <LoadingSkeleton rows={3} />}
       {firstError && <ErrorAlert message={sanitizeMessage(firstError)} retry={() => queryClient.invalidateQueries()} />}
       <div className="metric-grid">
-        <MetricCard label="Backend" value={<StatusBadge value={health.data?.status || 'unavailable'} />} detail={health.data?.database} icon={<Activity />} />
+        <MetricCard label="Backend" value={<StatusBadge value={health.data?.status || 'unavailable'} />} detail={health.data ? `${health.data.service} · ${health.data.version}` : undefined} icon={<Activity />} />
         <MetricCard label="MT5 demo" value={<StatusBadge value={mt5.data?.connected ? 'connected' : 'disconnected'} />} detail={mt5.data?.demo_verified ? 'Demo verified' : 'No verified account'} icon={<Landmark />} />
         <MetricCard label="Paper engine" value={<StatusBadge value={paperStatus.data?.status || 'unknown'} />} detail={paperStatus.data?.scheduler_running ? 'Scheduler active' : 'Scheduler idle'} icon={<WalletCards />} />
         <MetricCard label="Daily risk" value={<StatusBadge value={risk.data?.risk_locked ? 'locked' : 'available'} />} detail={`${risk.data?.state?.trades_count || 0} trades today`} icon={<Shield />} />

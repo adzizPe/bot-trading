@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\mt5\client.py
+# hypothesis_version: 6.151.9
+
+['ACCEPTED', 'BUY', 'MetaTrader5', 'REJECTED', 'RETRYABLE', 'SELL', 'UNKNOWN', 'login', 'password', 'server', 'timeout']

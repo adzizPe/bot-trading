@@ -7,6 +7,7 @@ import {
   CircleGauge,
   FileClock,
   Gauge,
+  GitCompareArrows,
   LayoutDashboard,
   Menu,
   Network,
@@ -20,6 +21,7 @@ import {
 import { useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { api, loadPreferences } from '../api/client'
+import { useAuth } from '../auth/AuthProvider'
 import { ConnectionIndicator, StatusBadge } from './ui'
 
 const navigation = [
@@ -28,6 +30,7 @@ const navigation = [
   { path: '/analysis', label: 'Analysis', icon: Activity },
   { path: '/signals', label: 'Signals', icon: Signal },
   { path: '/risk', label: 'Risk Management', icon: ShieldCheck },
+  { path: '/risk-feasibility', label: 'Risk Feasibility Analyzer', icon: GitCompareArrows },
   { path: '/trade-plans', label: 'Trade Plans', icon: FileClock },
   { path: '/demo', label: 'Demo Trading', icon: Gauge },
   { path: '/paper', label: 'Paper Trading', icon: TestTube2 },
@@ -40,6 +43,7 @@ const navigation = [
 export function DashboardLayout() {
   const [open, setOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
+  const { user, logout } = useAuth()
   const location = useLocation()
   const title = navigation.find((item) => item.path === location.pathname)?.label || 'Dashboard'
   const refreshInterval = loadPreferences().refreshInterval
@@ -63,8 +67,10 @@ export function DashboardLayout() {
         <header className="topbar">
           <div className="topbar-title"><button aria-label="Open navigation" className="icon-button mobile-only" onClick={() => setOpen(true)}><Menu /></button><div><p>Trading operations</p><h1>{title}</h1></div></div>
           <div className="topbar-status">
+            <div className="user-summary"><strong>{user?.username}</strong><span>{user?.role}</span></div>
             <ConnectionIndicator status={health.data ? 'connected' : health.isLoading ? 'connecting' : 'error'} />
             <StatusBadge value={mt5.data?.connected ? 'MT5 connected' : 'MT5 disconnected'} />
+            <button className="button button-ghost" onClick={() => void logout()}>Logout</button>
           </div>
         </header>
         <main className="content" id="main-content"><Outlet /></main>

@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\paper\types.py
+# hypothesis_version: 6.151.9
+
+['0', '1', '10000', 'ATR', 'BREAK_EVEN', 'EMERGENCY_STOP', 'EMERGENCY_STOPPED', 'ERROR', 'MANUAL', 'PAUSED', 'POINTS', 'RISK_LOCK', 'RISK_LOCKED', 'RUNNING', 'STARTING', 'STOPPED', 'STOP_LOSS', 'SYSTEM_ERROR', 'TAKE_PROFIT', 'TRAILING_STOP', 'break_even_trigger_r', 'commission_per_lot', 'initial_balance', 'slippage_points', 'swap_long_per_lot', 'swap_short_per_lot', 'trailing_stop_method']

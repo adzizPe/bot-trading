@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\risk\calculators.py
+# hypothesis_version: 6.151.9
+
+['100', 'ATR', 'BUY', 'SELL', 'atr', 'balance', 'calculation_details', 'capped_lot', 'entry', 'equity', 'lot_size', 'method', 'normalized_lot', 'raw_lot', 'reference_price', 'risk_amount', 'risk_base', 'risk_per_lot', 'risk_percent', 'risk_reward', 'stop_distance', 'stop_loss', 'take_profit', 'target_distance', 'target_price', 'tick_size', 'tick_value', 'ticks_at_risk', 'used_equity', 'volume_max', 'volume_min', 'volume_step']

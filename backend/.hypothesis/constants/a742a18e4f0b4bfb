@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\risk\repository.py
+# hypothesis_version: 6.151.9
+
+[0.0, 'cooldown_until', 'created_at', 'default', 'updated_at']

@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\database\models\paper.py
+# hypothesis_version: 6.151.9
+
+[500, 'paper_accounts', 'paper_engine_state', 'paper_orders', 'paper_positions', 'paper_settings', 'paper_trades']

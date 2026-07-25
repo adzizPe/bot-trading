@@ -37,7 +37,10 @@ async def harness(direction: str = "BUY", status: str = "CANDIDATE") -> dict[str
     async with db.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(db, expire_on_commit=False)
-    settings = make_settings(paper_update_interval_seconds=100.0)
+    settings = make_settings(
+        paper_update_interval_seconds=100.0,
+        risk_session_weekdays=[0, 1, 2, 3, 4, 5, 6],
+    )
     client = FakeMT5Client()
     client.account = SimpleNamespace(
         trade_mode=0, login=1, balance=10_000.0, equity=10_000.0,

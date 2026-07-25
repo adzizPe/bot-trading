@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\demo\audit.py
+# hypothesis_version: 6.151.9
+
+['comment', 'credential', 'error', 'password', 'secret', 'token']

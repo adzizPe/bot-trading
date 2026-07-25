@@ -15,17 +15,25 @@ from app.demo.stops import StopLossTakeProfitManager
 from app.demo.trailing import TrailingStopManager
 from app.mt5.manager import MT5ConnectionManager
 from app.risk.service import TradePlanService
+from app.safety.manager import SafetyManager
+from app.safety.repository import SafetyRepository
+from app.safety.types import SafetyAction, SafetyContext
 
 
 class DemoTradingService:
     def __init__(
         self, manager: MT5ConnectionManager, repository: DemoRepository,
         plans: TradePlanService, settings: Settings,
+        safety: SafetyManager | None = None,
+        safety_repository: SafetyRepository | None = None,
     ) -> None:
         self._manager = manager
         self._repository = repository
+        self._plans = plans
         self._settings = settings
-        self._executor = MT5OrderExecutor(manager, repository, plans)
+        self._safety = safety
+        self._safety_repository = safety_repository
+        self._executor = MT5OrderExecutor(manager, repository, plans, safety)
         self._guard = DemoAccountGuard()
         self._positions = PositionManager(repository, self._executor)
         self._stops = StopLossTakeProfitManager(self._executor)
@@ -69,9 +77,61 @@ class DemoTradingService:
             "enabled": self._settings.demo_execution_enabled,
             "engine": await self._repository.engine_state(),
             "broker": self._manager.status(),
+            "safety": self._safety.status() if self._safety else None,
         }
 
+    async def _assert_safety(
+        self, action: SafetyAction, trade_plan_id: str | None = None
+    ) -> None:
+        if self._safety is None:
+            return
+        broker = self._manager.status()
+        readiness: dict[str, Any] = {}
+        try:
+            readiness = await self._manager.market_order_readiness(
+                self._settings.mt5_symbol,
+                min(
+                    self._settings.safety_max_spread_points,
+                    self._settings.demo_maximum_spread_points,
+                ),
+            )
+        except Exception:
+            readiness = {
+                "terminal_trade_allowed": False,
+                "terminal_api_disabled": True,
+                "spread_points": None,
+            }
+        risk = await self._plans.status()
+        risk_settings = await self._plans.get_settings()
+        duplicate = bool(
+            trade_plan_id and self._safety_repository
+            and await self._safety_repository.trade_plan_exists(trade_plan_id)
+        )
+        news = (
+            await self._safety_repository.active_news(datetime.now(timezone.utc))
+            if self._safety_repository else []
+        )
+        context = SafetyContext(
+            action=action, now=datetime.now(timezone.utc),
+            connection={
+                **broker,
+                "terminal_trade_allowed": readiness.get("terminal_trade_allowed", False),
+                "terminal_api_disabled": readiness.get("terminal_api_disabled", True),
+            },
+            spread_points=readiness.get("spread_points"),
+            max_spread_points=min(
+                float(risk_settings["maximum_spread_points"]),
+                self._settings.safety_max_spread_points,
+            ),
+            risk=risk, risk_settings=risk_settings,
+            trade_plan_id=trade_plan_id, duplicate=duplicate,
+            news_events=tuple(news),
+        )
+        await self._safety.assert_allowed(context)
+
     async def start(self) -> dict[str, Any]:
+        if self._safety:
+            self._safety.fast_guard()
         settings = await self.settings()
         require_manual_mode(str(settings["execution_mode"]))
         current = await self._repository.engine_state()
@@ -94,6 +154,7 @@ class DemoTradingService:
         return await self._repository.set_engine_state(DemoStateMachine.stop())
 
     async def execute(self, trade_plan_id: str, idempotency_key: str) -> dict[str, Any]:
+        await self._assert_safety("OPEN_ORDER", trade_plan_id)
         state = await self._repository.engine_state()
         DemoStateMachine.require_running(str(state["status"]))
         settings = await self.settings()
@@ -139,15 +200,19 @@ class DemoTradingService:
         return result
 
     async def close(self, position_id: str) -> dict[str, Any]:
+        await self._assert_safety("CLOSE_POSITION")
         return await self._positions.close(position_id, await self.settings())
 
     async def move_stop(self, position_id: str, stop_loss: float) -> dict[str, Any]:
+        await self._assert_safety("MODIFY_STOP")
         return await self._stops.move(position_id, stop_loss, await self.settings())
 
     async def break_even(self, position_id: str) -> dict[str, Any]:
+        await self._assert_safety("MODIFY_STOP")
         return await self._break_even.apply(position_id, await self.settings())
 
     async def trailing(self, position_id: str) -> dict[str, Any]:
+        await self._assert_safety("MODIFY_STOP")
         return await self._trailing.apply(
             await self.position(position_id), await self.settings()
         )
@@ -157,6 +222,7 @@ class DemoTradingService:
         return await self._pending.list(int(settings["magic"]))
 
     async def cancel_pending(self, ticket: int) -> dict[str, Any]:
+        await self._assert_safety("CANCEL_PENDING")
         settings = await self.settings()
         return await self._pending.cancel(
             ticket, int(settings["magic"]), str(settings["comment"]),
@@ -171,22 +237,21 @@ class DemoTradingService:
         return await self._reconciliation.reconcile(int(settings["magic"]))
 
     async def emergency_stop(self, close_positions: bool = False) -> dict[str, Any]:
-        settings = await self.settings()
-        should_close = close_positions or bool(settings["emergency_close_positions"])
+        safety = getattr(self, "_safety", None)
+        if safety is not None:
+            await safety.emergency.activate("Manual emergency stop")
         state = await self._repository.set_engine_state(
-            DemoStateMachine.EMERGENCY_STOPPED
+            DemoStateMachine.EMERGENCY_STOP, "Manual emergency stop"
         )
-        results: list[dict[str, Any]] = []
-        if should_close:
-            results = await self._executor.emergency_close_all(settings)
         await self._repository.add_event(
-            "engine", state["engine_id"], "EMERGENCY_STOPPED",
-            "Demo trading emergency stop activated",
-            {"close_positions_requested": close_positions,
-             "close_positions_effective": should_close,
-             "close_results": len(results)},
+            "engine", state["engine_id"], "EMERGENCY_STOP",
+            "Safety emergency stop activated; all sends are blocked",
+            {
+                "close_positions_requested": close_positions,
+                "close_positions_effective": False,
+            },
         )
         return {
             "engine": state, "close_positions_requested": close_positions,
-            "close_positions_effective": should_close, "results": results,
+            "close_positions_effective": False, "results": [],
         }

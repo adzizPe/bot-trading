@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\demo\reconciliation.py
+# hypothesis_version: 6.151.9
+
+['adopted', 'adopted_count', 'deals', 'missing', 'missing_count', 'orders', 'positions', 'reconciliation', 'trades', 'trades_count', 'updated', 'updated_count']

@@ -2,7 +2,9 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 
-from app.api.dependencies import get_demo_service, require_demo_admin
+from app.api.dependencies import get_demo_service
+from app.auth.dependencies import require_permission
+from app.auth.permissions import Permission
 from app.demo.exceptions import (
     DemoConflictError,
     DemoError,
@@ -13,6 +15,7 @@ from app.demo.exceptions import (
 )
 from app.demo.service import DemoTradingService
 from app.mt5.exceptions import MT5Error, MT5OwnershipError, MT5TradeValidationError
+from app.safety.exceptions import SafetyLockedError
 from app.schemas.demo import (
     DemoEmergencyStopRequest,
     DemoEmergencyStopResponse,
@@ -29,13 +32,23 @@ from app.schemas.demo import (
     DemoStatusResponse,
 )
 
-router = APIRouter(
-    prefix="/demo", tags=["demo-trading"], dependencies=[Depends(require_demo_admin)]
-)
+router = APIRouter(prefix="/demo", tags=["demo-trading"], dependencies=[
+    Depends(require_permission(Permission.READ_DASHBOARD))
+])
 Service = Annotated[DemoTradingService, Depends(get_demo_service)]
 
 
 def _http_error(error: Exception) -> HTTPException:
+    if isinstance(error, SafetyLockedError):
+        return HTTPException(
+            status_code=status.HTTP_423_LOCKED,
+            detail={
+                "code": "SAFETY_LOCKED",
+                "reason": error.reason,
+                "guardian": error.guardian,
+                "emergency_active": error.guardian == "EmergencyStopManager",
+            },
+        )
     if isinstance(error, DemoNotFoundError):
         code = status.HTTP_404_NOT_FOUND
     elif isinstance(error, (DemoConflictError, DemoStateError)):
@@ -65,12 +78,16 @@ async def demo_settings(service: Service) -> Any:
     return await service.settings()
 
 
-@router.put("/settings", response_model=DemoSettingsResponse)
+@router.put("/settings", response_model=DemoSettingsResponse, dependencies=[
+    Depends(require_permission(Permission.DEMO_SETTINGS_UPDATE))
+])
 async def update_demo_settings(service: Service, payload: DemoSettingsUpdate) -> Any:
     return await service.update_settings(payload.model_dump(exclude_none=True))
 
 
-@router.post("/start", response_model=dict[str, Any])
+@router.post("/start", response_model=dict[str, Any], dependencies=[
+    Depends(require_permission(Permission.DEMO_EXECUTE))
+])
 async def start_demo(service: Service) -> Any:
     try:
         return await service.start()
@@ -78,7 +95,9 @@ async def start_demo(service: Service) -> Any:
         raise _http_error(error) from error
 
 
-@router.post("/pause", response_model=dict[str, Any])
+@router.post("/pause", response_model=dict[str, Any], dependencies=[
+    Depends(require_permission(Permission.DEMO_EXECUTE))
+])
 async def pause_demo(service: Service) -> Any:
     try:
         return await service.pause()
@@ -86,12 +105,16 @@ async def pause_demo(service: Service) -> Any:
         raise _http_error(error) from error
 
 
-@router.post("/stop", response_model=dict[str, Any])
+@router.post("/stop", response_model=dict[str, Any], dependencies=[
+    Depends(require_permission(Permission.DEMO_EXECUTE))
+])
 async def stop_demo(service: Service) -> Any:
     return await service.stop()
 
 
-@router.post("/execute", response_model=DemoOrderResponse)
+@router.post("/execute", response_model=DemoOrderResponse, dependencies=[
+    Depends(require_permission(Permission.DEMO_EXECUTE))
+])
 async def execute_demo(
     service: Service, payload: DemoExecuteRequest,
     x_idempotency_key: str | None = Header(
@@ -162,7 +185,9 @@ async def demo_position(service: Service, position_id: str) -> Any:
         raise _http_error(error) from error
 
 
-@router.post("/positions/{position_id}/close", response_model=DemoOperationResponse)
+@router.post("/positions/{position_id}/close", response_model=DemoOperationResponse,
+             dependencies=[Depends(require_permission(
+                 Permission.DEMO_POSITION_MANAGE))])
 async def close_demo_position(service: Service, position_id: str) -> Any:
     try:
         return await service.close(position_id)
@@ -170,7 +195,9 @@ async def close_demo_position(service: Service, position_id: str) -> Any:
         raise _http_error(error) from error
 
 
-@router.post("/positions/{position_id}/move-stop", response_model=DemoOperationResponse)
+@router.post("/positions/{position_id}/move-stop", response_model=DemoOperationResponse,
+             dependencies=[Depends(require_permission(
+                 Permission.DEMO_POSITION_MANAGE))])
 async def move_demo_stop_exact(
     service: Service, position_id: str, payload: DemoMoveStopRequest
 ) -> Any:
@@ -180,7 +207,9 @@ async def move_demo_stop_exact(
         raise _http_error(error) from error
 
 
-@router.put("/positions/{position_id}/stop", response_model=DemoOperationResponse)
+@router.put("/positions/{position_id}/stop", response_model=DemoOperationResponse,
+            dependencies=[Depends(require_permission(
+                Permission.DEMO_POSITION_MANAGE))])
 async def move_demo_stop(
     service: Service, position_id: str, payload: DemoMoveStopRequest
 ) -> Any:
@@ -190,7 +219,9 @@ async def move_demo_stop(
         raise _http_error(error) from error
 
 
-@router.post("/positions/{position_id}/break-even", response_model=DemoOperationResponse)
+@router.post("/positions/{position_id}/break-even", response_model=DemoOperationResponse,
+             dependencies=[Depends(require_permission(
+                 Permission.DEMO_POSITION_MANAGE))])
 async def break_even_demo_position(service: Service, position_id: str) -> Any:
     try:
         return await service.break_even(position_id)
@@ -198,7 +229,9 @@ async def break_even_demo_position(service: Service, position_id: str) -> Any:
         raise _http_error(error) from error
 
 
-@router.post("/positions/{position_id}/trailing", response_model=DemoOperationResponse)
+@router.post("/positions/{position_id}/trailing", response_model=DemoOperationResponse,
+             dependencies=[Depends(require_permission(
+                 Permission.DEMO_POSITION_MANAGE))])
 async def trail_demo_position(service: Service, position_id: str) -> Any:
     try:
         return await service.trailing(position_id)
@@ -214,7 +247,9 @@ async def demo_pending(service: Service) -> Any:
         raise _http_error(error) from error
 
 
-@router.delete("/pending/{ticket}", response_model=dict[str, Any])
+@router.delete("/pending/{ticket}", response_model=dict[str, Any], dependencies=[
+    Depends(require_permission(Permission.DEMO_POSITION_MANAGE))
+])
 async def cancel_demo_pending(service: Service, ticket: int) -> Any:
     try:
         return await service.cancel_pending(ticket)
@@ -229,7 +264,9 @@ async def demo_deals(
     return await service.deals(limit)
 
 
-@router.post("/reconcile", response_model=DemoReconciliationResponse)
+@router.post("/reconcile", response_model=DemoReconciliationResponse, dependencies=[
+    Depends(require_permission(Permission.DEMO_POSITION_MANAGE))
+])
 async def reconcile_demo(service: Service) -> Any:
     try:
         return await service.reconcile()
@@ -237,7 +274,9 @@ async def reconcile_demo(service: Service) -> Any:
         raise _http_error(error) from error
 
 
-@router.post("/emergency-stop", response_model=DemoEmergencyStopResponse)
+@router.post("/emergency-stop", response_model=DemoEmergencyStopResponse, dependencies=[
+    Depends(require_permission(Permission.EMERGENCY_STOP))
+])
 async def emergency_stop_demo(
     service: Service, payload: DemoEmergencyStopRequest
 ) -> Any:

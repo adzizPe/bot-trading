@@ -1,9 +1,9 @@
 from types import SimpleNamespace
 
-from fastapi.testclient import TestClient
 
 from app.main import create_app
 from app.mt5.manager import MT5ConnectionManager
+from tests.auth_helpers import authenticated_client
 from tests.fakes import FakeMT5Client
 from tests.test_mt5_manager import make_settings
 
@@ -20,7 +20,7 @@ def test_market_rest_and_websocket_endpoints() -> None:
     )
     manager = MT5ConnectionManager(client, settings)
 
-    with TestClient(create_app(settings, manager)) as api:
+    with authenticated_client(create_app(settings, manager)) as api:
         assert api.post("/api/v1/mt5/connect").status_code == 200
         tick = api.get("/api/v1/market/tick")
         assert tick.status_code == 200

@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\paper\pnl.py
+# hypothesis_version: 6.151.9
+
+['BUY', 'SELL', 'ask', 'bid', 'closed_at', 'commission_per_lot', 'entry_price', 'exit_price', 'opened_at', 'point', 'slippage_points', 'swap', 'swap_long_per_lot', 'swap_short_per_lot', 'tick_size', 'tick_value', 'value', 'volume']

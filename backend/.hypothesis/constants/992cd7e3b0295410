@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\backtest\position.py
+# hypothesis_version: 6.151.9
+
+['0', 'direction', 'entry_price', 'opened_at', 'position_id', 'volume']

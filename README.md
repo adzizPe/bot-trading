@@ -1,6 +1,93 @@
 # XAU/USD Trading Bot
 
-Aplikasi pembelajaran untuk market data, analisis, risk planning, paper trading, backtesting, dan eksekusi manual XAU/USD pada akun **demo** MetaTrader 5. Milestone 9 tetap menolak akun real/contest yang tidak sesuai, tidak mengaktifkan auto trading, dan tidak pernah memulai engine demo otomatis setelah restart.
+Aplikasi pembelajaran untuk market data, analisis, risk planning, paper trading, backtesting, dan eksekusi manual XAU/USD pada akun **demo** MetaTrader 5. Backend tetap menolak akun real/contest yang tidak sesuai, tidak mengaktifkan auto trading, dan tidak pernah memulai engine demo otomatis setelah restart.
+
+## Status Milestone 10.1 — Authentication dan RBAC
+
+Autentikasi terpusat menggantikan header admin lama. Browser memakai access/refresh token melalui cookie `HttpOnly`, `SameSite=Strict`, dan `Secure` pada production; token tidak boleh disimpan di `localStorage` atau `sessionStorage`. Cookie `csrf_token` sengaja dapat dibaca frontend untuk pola double-submit, wajib dikirim sebagai `X-CSRF-Token` pada mutation berbasis cookie, dan hash-nya terikat ke sesi aktif serta dirotasi bersama refresh token. Access token default berlaku 900 detik, refresh token 604800 detik dan dirotasi saat refresh. Login dibatasi per source IP (default 10 kegagalan/300 detik), sedangkan akun dikunci sementara setelah 5 kegagalan selama 900 detik.
+
+Route data publik hanya `GET /api/v1/health`. `POST /api/v1/auth/login` dan `POST /api/v1/auth/refresh` tidak membutuhkan access token karena merupakan endpoint protokol autentikasi, bukan route data publik. Semua REST route `/api/v1/*` lain serta WebSocket `/api/v1/ws/market` membutuhkan sesi valid dan permission eksplisit. UI dokumentasi dan OpenAPI tidak boleh diekspos; production menjalankan `APP_ENV=production` untuk menonaktifkan `/docs`, dan Nginx menolak `/docs`, `/redoc`, serta `/openapi.json`.
+
+### Matriks permission backend
+
+Permission memakai nama colon berikut; endpoint read-only dalam satu router tetap membutuhkan permission dasar router tersebut.
+
+| Route/operasi                                                     | Permission minimum                                        |
+| ----------------------------------------------------------------- | --------------------------------------------------------- |
+| `GET /api/v1/auth/me`, `POST /api/v1/auth/logout`                 | Sesi valid; tanpa permission colon tambahan               |
+| `GET /api/v1/market/*`, `WS /api/v1/ws/market`                    | `market:read`                                             |
+| `GET /api/v1/analysis/*`                                          | `signals:read`                                            |
+| `POST /api/v1/analysis/signal`                                    | `signals:read` + `analysis:generate`                      |
+| `GET /api/v1/mt5/*`                                               | `dashboard:read`                                          |
+| `POST /api/v1/mt5/connect`, `POST /api/v1/mt5/disconnect`         | `dashboard:read` + `mt5:control`                          |
+| Read-only `/api/v1/risk/*`                                        | `dashboard:read`                                          |
+| `PUT /api/v1/risk/settings`                                       | `dashboard:read` + `risk:settings:update`                 |
+| `GET /api/v1/risk/feasibility`                                    | `dashboard:read` + `risk:feasibility`                     |
+| `POST /api/v1/risk/trade-plan`                                    | `dashboard:read` + `trade-plan:create`                    |
+| Read-only `/api/v1/paper/*`                                       | `dashboard:read`                                          |
+| Paper settings/reset/start/pause/stop/emergency-stop              | `dashboard:read` + `paper:control`                        |
+| Paper open/close                                                  | `dashboard:read` + `paper:trade`                          |
+| Read-only `/api/v1/backtests/*`                                   | `statistics:read`                                         |
+| Submit/cancel backtest                                            | `statistics:read` + `backtest:submit` / `backtest:cancel` |
+| Read-only `/api/v1/demo/*`                                        | `dashboard:read`                                          |
+| Demo start/pause/stop/execute                                     | `dashboard:read` + `demo:execute`                         |
+| Demo close/move-stop/break-even/trailing/cancel-pending/reconcile | `dashboard:read` + `demo:position:manage`                 |
+| `PUT /api/v1/demo/settings`                                       | `dashboard:read` + `demo:settings:update`                 |
+| Demo/safety emergency stop                                        | `dashboard:read` + `emergency-stop:execute`               |
+| Safety status/events dan `GET /api/v1/health/full`                | `dashboard:read`                                          |
+| Safety emergency/circuit reset                                    | `dashboard:read` + `safety:reset`                         |
+| Auth user create/list                                             | `users:manage`                                            |
+| Auth role update                                                  | `roles:manage`                                            |
+| Auth session list/invalidate                                      | `sessions:invalidate`                                     |
+
+Role bawaan: `VIEWER` memiliki `dashboard:read`, `market:read`, `signals:read`, dan `statistics:read`; `OPERATOR` menambah kontrol MT5, analysis, paper, serta submit/cancel backtest; `RISK_ADMIN` menambah update risk, create trade plan, dan feasibility; `EXECUTION_ADMIN` menambah demo execute, demo position management, dan emergency stop di atas permission read; `SUPER_ADMIN` memiliki seluruh permission termasuk administrasi user/role/session, demo settings, dan safety reset.
+
+### Bootstrap satu kali
+
+Jalankan migration native Alembic sampai revision `20260728_0009`, lalu buat super-admin pertama secara interaktif satu kali. Command meminta username, password minimal 12 karakter, dan konfirmasi; tidak ada username atau password default dan password tidak menjadi argumen command/history.
+
+```powershell
+backend\.venv\Scripts\python.exe -m alembic -c backend\alembic.ini upgrade head
+Push-Location backend
+.\.venv\Scripts\python.exe -m app.auth.bootstrap
+Pop-Location
+```
+
+Setelah bootstrap, login melalui dashboard, buat akun operator sesuai least privilege, dan jangan menjalankan bootstrap kembali kecuali memang perlu membuat `SUPER_ADMIN` tambahan secara eksplisit.
+
+## Status Milestone 10.2 — Backtest Resource Management
+
+Backend backtest memakai coordinator FIFO bounded native dengan default satu worker dan tiga slot pending. Admission memvalidasi symbol, timeframe M5, rentang tanggal, estimasi candle, metadata upload, serta reservasi memori agregat seluruh job sebelum membuat row; kapasitas penuh menghasilkan HTTP `429` tanpa row baru. Timestamp creation dibuat monoton agar recovery FIFO tetap deterministik pada Windows. Timeout menghasilkan `FAILED/JOB_TIMEOUT`; shutdown/restart merekam alasan stabil dan startup memulihkan `PENDING` secara FIFO. Pembatalan job pending langsung membebaskan slot queue, progress SQLite dibatch, ledger/report/event/equity dibatasi, dan export CSV memakai existence check ringan serta pembacaan repository berhalaman.
+
+CSV tidak lagi menerima path filesystem dari request. Upload lebih dahulu melalui `POST /api/v1/backtests/uploads` sebagai multipart `.csv` UTF-8, lalu kirim `csv_upload_id` pada `POST /api/v1/backtests`; ID bersifat single-use selama dimiliki job dan dilarang untuk source `MT5`. Staging memakai nama UUID di `backend/data/backtest_uploads`, memvalidasi MIME/header/timestamp timezone/OHLC/ukuran/baris serta overlap rentang request, tidak mengekspos path, dan dibersihkan saat reject, cancel, terminal, timeout, shutdown, atau orphan cleanup termasuk file data tanpa metadata. Upload/submit tetap membutuhkan `statistics:read` + `backtest:submit`; queue/resources/limits tetap read-only dengan `statistics:read`.
+
+Batas efektif dikonfigurasi dengan `MAX_BACKTEST_JOBS`, `MAX_PENDING_JOBS`, `MAX_CANDLES`, `MAX_DATE_RANGE_DAYS`, `MAX_CSV_SIZE_MB`, `MAX_CSV_ROWS`, `MAX_MEMORY_BUDGET_MB`, dan `JOB_TIMEOUT_MINUTES`. Deployment tetap native Python virtual environment/FastAPI/Uvicorn di belakang Nginx dan NSSM/PM2, tanpa Docker atau service queue eksternal. Jalankan **tepat satu worker Uvicorn** agar coordinator in-process, recovery SQLite, dan state MT5 process-global memiliki satu owner.
+
+## Status Milestone 10.3 — MT5 Connector Isolation & Timeout Hardening
+
+Seluruh vendor I/O MT5 berada di belakang satu connector berserial dengan hard deadline. Pada runtime produksi `MetaTrader5Client`, connector memakai satu child process Windows `spawn`; hanya child tersebut yang memanggil API vendor. Timeout atau crash menghentikan generation process, mengarantina connector, menolak broker mutation baru, dan menjalankan bounded recovery/reconnect. Backend tetap responsif karena status dan metrics dibaca dari snapshot parent tanpa menunggu vendor.
+
+State connector adalah `CONNECTED`, `DISCONNECTED`, `DEGRADED`, `TIMEOUT`, `RECOVERING`, atau `FAILED`. Timeout `order_send`/close tidak pernah langsung di-retry: outcome menjadi `UNKNOWN`, mutation gate tetap tertutup, dan gate hanya dibuka setelah snapshot reconciliation berhasil membaca position, active/history order, deal, serta history. Explicit broker `TIMEOUT`/connection retcode mengikuti gate UNKNOWN yang sama. Existing demo account guard, idempotency, final safety guard, dan permission backend tetap authoritative.
+
+Heartbeat MT5 dedicated berjalan dari lifecycle connector dan melakukan bounded native `terminal_info`, bukan hanya membaca flag lama. Metrics connector mencatat jumlah call, latency average/last/max dan per operation, timeout, failure, retry, reconnect, serta generation. Konfigurasi native: `MT5_VENDOR_TIMEOUT_MS`, `MT5_ORDER_SEND_TIMEOUT_MS`, `MT5_HEARTBEAT_TIMEOUT_MS`, `MT5_HEARTBEAT_INTERVAL_SECONDS`, `MT5_RECOVERY_RETRIES`, dan `MT5_RECOVERY_DELAY_SECONDS`; connect tetap memakai `MT5_TIMEOUT_MS`, `MT5_CONNECT_RETRIES`, dan `MT5_RETRY_DELAY_SECONDS`. Child connector bukan service deployment terpisah dan tidak menambah Docker/container, port, broker, atau queue eksternal. Tetap gunakan tepat satu worker Uvicorn.
+
+## Status Milestone 10.4 — WebSocket Hardening
+
+WebSocket private memakai access cookie `HttpOnly` atau bearer header untuk non-browser client; token tidak pernah diterima melalui URL. Handshake memvalidasi token, sesi, expiry, origin yang dikirim client, dan permission backend. Sesi aktif divalidasi ulang berkala dan koneksi ditutup dengan `4401` saat token kedaluwarsa/revoked atau `4403` saat permission tidak lagi cukup. Browser merespons heartbeat aplikasi dan tidak melakukan reconnect loop untuk close auth/permission.
+
+Satu `WebSocketHub` in-process dimiliki lifespan aplikasi. Publisher market membaca `MarketDataService` paling banyak sekali per interval untuk setiap simbol aktif, memperbarui cache tick/Bid/Ask/spread/status, lalu melakukan fan-out ke seluruh subscriber; jumlah pembacaan tidak bertambah bersama jumlah client. `/api/v1/ws/market` tetap kompatibel dengan payload tick mentah, tetapi query `interval_seconds` tidak lagi dapat mengubah cadence server. `/api/v1/ws` menyediakan channel read-only `market`, `analysis`, `signals`, `paper`, `backtest`, `logs`, dan `health` melalui frame `{"type":"subscribe","topics":[...]}`. Hanya channel market memiliki publisher aktif; channel lain adalah bus internal dan tidak melakukan polling atau mutation domain.
+
+Setiap client memiliki queue bounded dengan kebijakan drop-oldest/latest-wins dan ditutup `1013` setelah melewati batas slow-client. Hub membatasi koneksi per user, per source IP, dan total; juga menerapkan idle/heartbeat timeout serta rate limit handshake, reconnect, dan subscribe. Snapshot agregat read-only tersedia di `GET /api/v1/websocket/status` dengan permission `market:read`, mencakup active connection per topic, reconnect, rejected connection, dropped message, delivery latency, broadcast duration, cache market, dan frekuensi market read. Tidak ada token, cookie, username, session ID, atau IP yang diekspos.
+
+Konfigurasi native memakai `WS_MAX_CONNECTIONS_PER_USER`, `WS_MAX_CONNECTIONS_PER_IP`, `WS_MAX_TOTAL_CONNECTIONS`, `WS_IDLE_TIMEOUT_SECONDS`, `WS_HEARTBEAT_INTERVAL_SECONDS`, `WS_HEARTBEAT_TIMEOUT_SECONDS`, `WS_CLIENT_BUFFER_SIZE`, `WS_SLOW_CLIENT_DROP_LIMIT`, `WS_SEND_TIMEOUT_SECONDS`, `WS_HANDSHAKE_RATE_LIMIT`, `WS_HANDSHAKE_RATE_WINDOW_SECONDS`, `WS_RECONNECT_RATE_LIMIT`, `WS_RECONNECT_RATE_WINDOW_SECONDS`, `WS_SUBSCRIBE_RATE_LIMIT`, `WS_SUBSCRIBE_RATE_WINDOW_SECONDS`, dan `WS_SESSION_REVALIDATE_SECONDS`. Jalankan benchmark offline dari folder `backend` dengan `.\.venv\Scripts\python.exe -m benchmarks.websocket_fanout`. Deployment tetap native venv/Uvicorn + Vite dist + Nginx + NSSM/PM2 dan wajib satu worker; milestone ini tidak mengubah konfigurasi Nginx, menambah container, service eksternal, atau queue eksternal.
+
+## Status Milestone 10.5 — Nginx Production Hardening
+
+`frontend/nginx.conf` sekarang merupakan template full native Windows Nginx dengan HTTP-to-HTTPS `308`, TLS 1.2/1.3, cipher ECDHE modern, HSTS, OCSP stapling verification, session hardening, CSP dan security/cross-origin headers. Domain `trading.example.com`, certificate paths, dan release root adalah placeholder deployment yang wajib diganti lalu divalidasi menggunakan `scripts/Test-NginxConfig.ps1`; certificate/private key tidak disimpan di repository.
+
+Edge menerapkan rate dan connection limit terpisah untuk API, login, upload, serta WebSocket; body default dibatasi 1 MiB dan upload CSV default 52 MiB agar menampung backend `MAX_CSV_SIZE_MB=50` plus multipart overhead. API, upload, client-body, dan WebSocket memiliki timeout eksplisit. Exact `/api/v1/ws` dan prefix `/api/v1/ws/` sama-sama memperoleh Upgrade header, buffering off, socket keepalive, dan log WebSocket terpisah. Forwarded source IP selalu dioverwrite dengan peer `$remote_addr`, bukan mempercayai header client.
+
+Gzip aktif. Brotli tersedia sebagai snippet opt-in dan hanya boleh di-include setelah `nginx -V` membuktikan modul tersedia serta `nginx -t` lulus. Asset Vite hashed menggunakan cache satu tahun `immutable`, sedangkan `index.html` memakai `no-store`. `/nginx/status` menggunakan `stub_status` dan hanya mengizinkan loopback. Access/error/WebSocket log dipisah; script rotation, HTTPS benchmark read-only, serta runbook setup/update/backup/rollback/recovery tersedia di `docs/deployment/windows-nginx.md`. Deployment tetap native dan satu worker Uvicorn; tidak ada container atau deployment otomatis.
 
 ## Status Milestone 7
 
@@ -32,13 +119,70 @@ Testing frontend menggunakan Vitest dan Testing Library untuk routing, API clien
 
 Eksekusi broker tersedia hanya dalam mode `MANUAL_DEMO` dan feature flag default `false`. Backend memuat ulang trade plan/signal, memverifikasi signal `CANDIDATE` belum kedaluwarsa, mengulang demo-account guard di dalam lock MT5 tepat sebelum `order_check` dan `order_send`, mengambil fresh Bid/Ask, menghitung ulang volume berbasis risk, memvalidasi spread/stops/freeze/margin, lalu menyimpan request/result tersanitasi dan melakukan rekonsiliasi.
 
-- Engine persisten mendukung `STOPPED`, `STARTING`, `RUNNING`, `PAUSED`, `RISK_LOCKED`, `CONNECTION_LOST`, `ERROR`, dan `EMERGENCY_STOPPED`; startup selalu memaksa `STOPPED`.
+- Engine persisten mendukung `STOPPED`, `STARTING`, `RUNNING`, `PAUSED`, `RISK_LOCKED`, `CONNECTION_LOST`, `ERROR`, dan `EMERGENCY_STOP`; startup selalu memaksa `STOPPED`.
 - Idempotency, `trade_plan_id`, dan `signal_id` dilindungi unique constraint atomik. Outcome tidak pasti disimpan `UNKNOWN` dan tidak dikirim ulang sebelum reconciliation.
 - Maksimal satu retry hanya untuk `REQUOTE` atau `PRICE_CHANGED`. Retcode lain tidak diretry agresif.
-- Seluruh `/api/v1/demo/*` membutuhkan `X-Admin-Token` dan rate limit. Token dashboard hanya berada di memori tab, bukan `localStorage`/`sessionStorage`.
+- Seluruh `/api/v1/demo/*` memakai autentikasi terpusat, permission colon yang sesuai operasi, CSRF untuk mutation berbasis cookie, dan rate limit backend. Access/refresh token dashboard hanya berada di cookie—bukan `localStorage`/`sessionStorage`.
 - Dashboard menambahkan Demo Trading, execution/order/position/deal history, close, break-even, reconcile, emergency stop, dan tombol `Execute Demo` dengan konfirmasi tepat `EXECUTE DEMO ORDER`.
 - Frontend tidak menerima atau mengirim symbol, volume, SL, atau TP bebas untuk execution dari trade plan.
 - Tidak ada endpoint akun real dan tidak ada bypass demo guard. Integration test order nyata dipisahkan, opt-in eksplisit, dan tidak dijalankan otomatis.
+
+## Status Milestone 9.5 — Safety Layer
+
+Safety Layer berada sebelum executor dan memiliki final synchronous kill-switch tepat sebelum vendor `order_send`. `EmergencyStopManager`, connection/spread/daily-loss/drawdown/weekend/session/news/duplicate guardians, heartbeat, health monitor, circuit breaker, dan audit trail bekerja fail-closed tanpa mengubah Strategy Engine, Risk Management, Paper Trading, atau Backtesting.
+
+- Emergency aktif memblokir seluruh mutation trading dengan HTTP `423 Locked`, mengubah engine menjadi `EMERGENCY_STOP`, dan tidak menjalankan auto-close karena semua vendor send harus tetap nol.
+- Connection guardian memblokir MT5 disconnected, `terminal_trade_allowed=false`, atau `terminal_api_disabled=true`; spread, daily loss, drawdown, weekend, sesi, news, dan duplicate plan juga memblokir trading.
+- Heartbeat memeriksa database, MT5, backend, dan WebSocket setiap 5 detik. Status `DEGRADED`/`UNHEALTHY` memblokir trading.
+- Circuit breaker terbuka setelah 5 infrastructure error dalam window 30 menit dan mengunci trading selama 30 menit.
+- Sesi `LONDON`, `NEW_YORK`, `ASIA`, dan `CUSTOM` memakai database IANA timezone (`tzdata`) agar DST ditangani konsisten pada Windows.
+- Dashboard Demo Trading hanya ditambah panel Safety Status, Guardian Status, Circuit Breaker, Heartbeat, Health, dan Emergency Stop; kontrol existing tidak dirombak.
+- Event emergency, reject/block, guardian, session, weekend, connection, spread, dan daily-loss disimpan pada audit trail safety.
+
+## Status Milestone 9.6 — Risk Feasibility Analyzer
+
+Risk Feasibility Analyzer telah tersedia sebagai diagnosis **read-only, advisory-only** sebelum pembuatan Trade Plan. Analyzer menjawab apakah formula position sizing existing dapat menghasilkan volume yang memenuhi grid lot broker berdasarkan candidate signal, risk settings aktif, serta snapshot account/tick/symbol yang fresh. Hasilnya bukan approval, rejection gate, rekomendasi trading, atau pengganti validasi authoritative pada flow Trade Plan.
+
+### Endpoint dan kontrak
+
+```http
+GET /api/v1/risk/feasibility?signal_id=<SIGNAL_ID>
+Cache-Control: no-store
+```
+
+- Request query wajib berisi tepat satu `signal_id`; tidak ada request body. Query yang hilang, duplikat, atau menambahkan override seperti equity, balance, risk percent, entry, stop loss, volume, tick value, maupun symbol specification ditolak dengan HTTP `422`.
+- Signal yang tidak ditemukan menghasilkan HTTP `404` tersanitasi. Hasil domain `FEASIBLE`, `INFEASIBLE`, dan `UNAVAILABLE` menggunakan kontrak response yang sama; `POST` pada endpoint ini tidak didukung.
+- `FEASIBLE` berarti floor-normalized lot memenuhi effective minimum broker lot, tetapi final Trade Plan masih dapat ditolak oleh flow authoritative existing. `INFEASIBLE` berarti input valid tetapi configured risk tidak menghasilkan lot executable dan recommendation-nya `DO_NOT_FORCE_MINIMUM_LOT`. `UNAVAILABLE` berarti input/snapshot tidak lengkap, invalid, stale, atau tidak konsisten dan recommendation-nya `RETRY_WITH_VALID_FRESH_DATA`.
+- Nilai presisi keputusan diserialisasi sebagai **decimal strings** (atau `null` bila diagnostic tidak aman dihitung), bukan JSON binary float. Response menyertakan unit currency, percent, lot, price, point, dan tick-derived.
+- Snapshot account, tick, dan symbol specification dibaca atomik melalui jalur MT5 read-only. Response menyertakan `captured_at`, `account_at`, `symbol_at`, `tick_at`, dan `fresh_until`; tick yang melewati freshness policy 60 detik menghasilkan `UNAVAILABLE/SNAPSHOT_STALE`. Backend dan frontend sama-sama memakai `no-store`, dan dashboard membuang hasil yang expired, berasal dari signal lain, atau kalah oleh request yang lebih baru.
+
+### Diagnostic position sizing
+
+Analyzer menampilkan `raw_lot` sebagai nilai diagnostic non-executable, `capped_lot`, `normalized_lot` yang selalu di-floor ke zero-origin `volume_step` tanpa round-up/clamp-up, configured `volume_min`, effective `minimum_broker_lot`, `volume_max`, dan `volume_step`. Status volume ditentukan dari perbandingan normalized lot dengan effective minimum broker lot; minimum lot tidak pernah dipaksakan.
+
+Diagnostic threshold mencakup:
+
+- `required_minimum_risk_base`, yaitu modal minimum matematis agar minimum broker lot sesuai configured risk. Jika risk base memakai equity, `required_minimum_equity` bernilai sama dan applicable; jika risk base memakai balance, threshold tetap bertipe `BALANCE` dan required equity ditandai hypothetical/not applicable.
+- `maximum_stop_distance`, versi points, dan direction-aware `boundary_stop_loss_price`: batas SL advisory yang masih memungkinkan minimum broker lot tanpa menaikkan risk. Boundary ini tidak mengubah stop loss signal atau Trade Plan.
+- Estimasi amount/percent risiko jika minimum broker lot digunakan, beserta delta terhadap configured risk, selalu berlabel `DIAGNOSTIC_ONLY`. Nilai ini hanya menjelaskan konsekuensi hipotetis—bukan instruksi untuk force, override, round-up, create plan, atau execute order.
+
+### Zero mutation dan compatibility
+
+Analysis Result hanya hidup selama request/cache UI sementara: **zero persistence**, tanpa tabel, migration, backfill, atau record feasibility. Pemanggilan berulang tidak menulis Trade Plan, `daily_risk_state`, risk settings/state, signal, order, position, deal, safety event, maupun state broker; response juga tidak memiliki `trade_plan_id`. Analyzer tidak memanggil `order_check`, `order_send`, paper/demo executor, atau operasi broker mutation apa pun.
+
+Strategy dan signal generation/persistence tidak berubah. Risk Management—settings, limits, lock, counters, formula, serta persistence—tidak berubah. Source, interface, rounding, normalization, output, dan exception `PositionSizeCalculator` tidak berubah. Trade Plan flow, approval/rejection, records, list/detail contract, dan tombol create existing tidak berubah atau bergantung pada status analyzer. Paper Trading, Backtesting, Demo Execution, Safety Layer, dan Order Executor beserta order/reconciliation/position management juga tidak berubah.
+
+Dashboard menambahkan route **Risk Feasibility Analyzer** (`/risk-feasibility`) untuk latest candidate signal. Halaman menampilkan status dengan teks/icon, raw/floor-normalized/minimum lot, required minimum equity/risk base, maximum stop distance/boundary SL, diagnostic-only minimum-lot risk, reason codes, recommendation, dan advisory disclaimer. Tidak ada editable calculation fields maupun tombol force/override/create/execute; state loading/error/unavailable/stale tidak pernah ditampilkan sebagai feasible.
+
+Focused test commands:
+
+```powershell
+backend\.venv\Scripts\python.exe -m pytest -c backend\pytest.ini backend\tests\test_risk_feasibility.py backend\tests\test_risk_feasibility_service.py backend\tests\test_risk_feasibility_routes.py backend\tests\test_risk_feasibility_integration.py backend\tests\test_risk_feasibility_properties.py
+npm run test --prefix frontend -- src/riskFeasibility.test.ts src/pages/RiskFeasibilityPage.test.tsx src/api/client.test.ts
+npm run typecheck --prefix frontend
+```
+
+Deployment tidak berubah: backend tetap dijalankan langsung dari native Python virtual environment dengan FastAPI/Uvicorn, frontend tetap Vite build ke `frontend/dist` dan dilayani Nginx, serta process management tetap NSSM pada Windows VPS atau PM2 bila sesuai. Milestone 9.6 tidak menambah Docker/container, service/daemon/queue baru, port/upstream baru, atau konfigurasi `.env` baru.
 
 ## Struktur
 
@@ -72,25 +216,37 @@ Eksekusi broker tersedia hanya dalam mode `MANUAL_DEMO` dan feature flag default
 
 ## Konfigurasi `.env`
 
-Salin `.env.example` menjadi `.env`, lalu isi kredensial akun demo:
+Salin `.env.example` menjadi `.env`, lalu ganti seluruh placeholder MT5 dengan kredensial **akun demo** milik operator. Jangan commit `.env`.
 
 ```dotenv
-MT5_LOGIN=<DEMO_LOGIN>
-MT5_PASSWORD="<DEMO_TRADING_PASSWORD>"
-MT5_SERVER=<NAMA_SERVER_DEMO_PERSIS>
-MT5_PATH=C:\Program Files\MetaTrader 5\terminal64.exe
+APP_ENV=development
+MT5_LOGIN=<DEMO_ACCOUNT_LOGIN>
+MT5_PASSWORD=<DEMO_ACCOUNT_PASSWORD>
+MT5_SERVER=<EXACT_DEMO_SERVER_NAME>
+MT5_PATH=C:\Path\To\MetaTrader 5\terminal64.exe
 MT5_SYMBOL=XAUUSD
+
+# Local HTTP only. Production HTTPS wajib true.
+AUTH_ACCESS_TTL_SECONDS=900
+AUTH_REFRESH_TTL_SECONDS=604800
+AUTH_COOKIE_SECURE=false
+AUTH_TRUSTED_PROXIES=[]
+AUTH_LOGIN_RATE_LIMIT=10
+AUTH_LOGIN_RATE_WINDOW_SECONDS=300
+AUTH_ACCOUNT_LOCKOUT_ATTEMPTS=5
+AUTH_ACCOUNT_LOCKOUT_SECONDS=900
 
 # Tetap false sampai setup admin dan review selesai.
 DEMO_EXECUTION_ENABLED=false
-DEMO_ADMIN_TOKEN=<TOKEN_ADMIN_ACAK_MINIMAL_16_KARAKTER>
 DEMO_EXECUTION_MODE=MANUAL_DEMO
 DEMO_MAGIC=9072026
 DEMO_COMMENT=bot-demo
 DEMO_EMERGENCY_CLOSE_POSITIONS=false
 ```
 
-`DEMO_EXECUTION_ENABLED` default `false`; `DEMO_EXECUTION_MODE` hanya menerima `MANUAL_DEMO`. Jangan memasukkan token admin ke build Vite. Operator mengetikkannya di halaman Demo Trading dan nilainya hanya disimpan di memori tab.
+`AUTH_COOKIE_SECURE=false` hanya untuk local HTTP (`localhost`). Production wajib memakai HTTPS dan `AUTH_COOKIE_SECURE=true`; konfigurasi production dengan cookie tidak secure ditolak backend. `AUTH_TRUSTED_PROXIES` adalah JSON array CIDR/IP proxy yang benar-benar dipercaya, misalnya `["127.0.0.1/32","::1/128"]` bila Nginx lokal menjadi satu-satunya peer backend. Jangan memakai trust-all. Backend hanya membaca `X-Forwarded-For` saat peer langsung cocok dengan daftar tersebut.
+
+`DEMO_EXECUTION_ENABLED` default `false`; `DEMO_EXECUTION_MODE` hanya menerima `MANUAL_DEMO`. Akses demo dikendalikan oleh sesi terautentikasi dan permission RBAC, bukan secret yang dimasukkan ke dashboard atau build Vite.
 
 `MT5_SYMBOL` adalah simbol pilihan broker. Resolver akan mencoba simbol konfigurasi lebih dahulu, kemudian `XAUUSD`, `XAUUSDm`, `XAUUSD.a`, dan `GOLD`. `digits` serta `point` selalu dibaca dari spesifikasi simbol MT5.
 
@@ -113,10 +269,7 @@ backend\.venv\Scripts\python.exe -m alembic -c backend\alembic.ini upgrade head
 backend\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
 ```
 
-Buka:
-
-- Health API: `http://localhost:8000/api/v1/health`
-- Swagger UI: `http://localhost:8000/docs`
+Buka health check publik di `http://localhost:8000/api/v1/health`. Endpoint aplikasi lainnya membutuhkan login dan permission; dokumentasi interaktif/OpenAPI tidak digunakan sebagai alur operasi.
 
 Gunakan satu worker Uvicorn karena API MetaTrader 5 memiliki state koneksi process-global.
 
@@ -200,7 +353,7 @@ Skor terdiri dari trend alignment (25), market structure (15), setup alignment (
 
 ## Endpoint MT5 demo execution
 
-Semua endpoint berikut membutuhkan header `X-Admin-Token`; mutation juga dibatasi rate limiter backend.
+Seluruh endpoint berikut membutuhkan sesi valid dan permission sesuai matriks Milestone 10.1; mutation juga memakai CSRF untuk autentikasi cookie dan dibatasi rate limiter backend.
 
 | Method  | Endpoint                                   | Fungsi                                       |
 | ------- | ------------------------------------------ | -------------------------------------------- |
@@ -222,25 +375,31 @@ Semua endpoint berikut membutuhkan header `X-Admin-Token`; mutation juga dibatas
 
 `POST /demo/execute` hanya menerima `trade_plan_id`, `idempotency_key`, dan `confirmation_text` bernilai tepat `EXECUTE DEMO ORDER`. Nilai volume, symbol, SL, dan TP dari frontend ditolak schema.
 
-## Menguji melalui Swagger
+## Endpoint Safety Layer
+
+Endpoint safety membutuhkan sesi valid dan permission sesuai matriks Milestone 10.1. `/health/full` bersifat read-only tetapi tetap protected dengan `dashboard:read`; hanya `/health` yang menjadi health route publik.
+
+| Method | Endpoint                          | Fungsi                                              |
+| ------ | --------------------------------- | --------------------------------------------------- |
+| GET    | `/api/v1/safety/status`           | Status seluruh guardian dan trading allowed         |
+| POST   | `/api/v1/safety/emergency-stop`   | Aktifkan hard emergency stop                        |
+| POST   | `/api/v1/safety/emergency-reset`  | Reset emergency secara eksplisit                    |
+| POST   | `/api/v1/safety/circuit-reset`    | Reset circuit breaker secara eksplisit              |
+| GET    | `/api/v1/safety/events?limit=100` | Audit event safety tersanitasi                      |
+| GET    | `/api/v1/health/full`             | Health database/MT5/backend/WebSocket dan subsystem |
+
+`/health/full` mengembalikan status database, MT5, market, risk, paper, backtest, frontend, versi, build, uptime, heartbeat, dan snapshot safety. Reset tidak mengaktifkan engine atau auto trading; operator tetap harus memulai alur demo secara manual.
+
+## Alur operasi terautentikasi
 
 1. Pastikan terminal MT5 terbuka dan login ke akun demo.
-2. Jalankan backend dan buka `http://localhost:8000/docs`.
-3. Jalankan `POST /api/v1/mt5/connect`.
-4. Pastikan `connected` dan `demo_verified` bernilai `true`.
-5. Jalankan signal dan buat trade plan dari `signal_id`.
-6. Pastikan plan `APPROVED`, lalu panggil `POST /api/v1/paper/start`.
-7. Kirim hanya `trade_plan_id` ke `POST /api/v1/paper/open`.
-8. Pantau account, positions, trades, statistics, dan equity curve.
-9. Tutup manual atau biarkan siklus paper memproses SL/TP.
-10. Panggil `/paper/stop`, lalu `/mt5/disconnect` setelah selesai.
+2. Login melalui dashboard; browser mengirim cookie dengan `credentials: include` dan `X-CSRF-Token` untuk mutation.
+3. Operator dengan `mt5:control` menjalankan koneksi MT5 dan memastikan `connected` serta `demo_verified` bernilai `true`.
+4. Role dengan permission yang tepat membuat signal/trade plan, lalu menjalankan paper atau demo secara eksplisit.
+5. Pantau account, positions, trades, statistics, dan equity curve dari dashboard.
+6. Stop engine dan disconnect MT5 setelah selesai.
 
-Swagger tidak menjalankan WebSocket. Gunakan console browser atau klien WebSocket:
-
-```javascript
-const socket = new WebSocket("ws://127.0.0.1:8000/api/v1/ws/market");
-socket.onmessage = (event) => console.log(JSON.parse(event.data));
-```
+WebSocket market memakai access cookie yang sama dan memerlukan `market:read`. Jangan menaruh access/refresh token pada URL, JavaScript storage, source code, log, atau konfigurasi Vite.
 
 ## Contoh response tick
 
@@ -427,42 +586,48 @@ Hasil build berada di `frontend/dist` dan dilayani Nginx.
 ## Lint dan test
 
 ```powershell
-backend\.venv\Scripts\python.exe -m ruff check backend\app backend\tests
+backend\.venv\Scripts\python.exe -m ruff check backend\app backend\tests backend\migrations
 backend\.venv\Scripts\python.exe -m pytest -c backend\pytest.ini backend\tests -m "not integration"
-backend\.venv\Scripts\python.exe -m pytest -c backend\pytest.ini backend\tests -m integration
+backend\.venv\Scripts\python.exe -m pytest -c backend\pytest.ini backend\tests -m safety_integration
 npm run lint --prefix frontend
 npm run typecheck --prefix frontend
 npm run test --prefix frontend
 npm run build --prefix frontend
 ```
 
-Integration test market/analysis/risk/paper/backtest tetap read-only. Test actual demo order berada di `test_demo_integration.py`, ditandai `integration`, memerlukan opt-in destruktif dan dedicated test magic, serta tidak boleh dijalankan sebelum operator meninjau request minimum-lot tersanitasi dan memberi persetujuan eksplisit.
+Marker `safety_integration` sepenuhnya offline: fake MT5 dan SQLite temporary, dengan assertion `order_send_calls == 0`. Integration test actual demo order berada di `test_demo_integration.py`, memerlukan marker/opt-in destruktif serta persetujuan operator terpisah, dan tidak termasuk validasi Safety Layer normal.
 
-## Database dan deployment native
+## Database dan deployment native VPS
 
-SQLite development disimpan di `backend/data/trading_bot.db` dan diabaikan Git. Alembic mengelola signal/risk serta `paper_accounts`, `paper_orders`, `paper_positions`, `paper_trades`, `paper_engine_state`, `paper_settings`, dan `paper_equity_snapshots`. Backend dijalankan langsung dari virtual environment melalui NSSM pada Windows VPS atau PM2 jika sesuai. Nginx melayani `frontend/dist` dan meneruskan REST/WebSocket ke `127.0.0.1:8000`.
+SQLite development disimpan di `backend/data/trading_bot.db` dan diabaikan Git. Jalankan Alembic native sampai migration backtest resource management `20260728_0009` (di atas auth/RBAC `20260727_0008`, safety `20260726_0007`, dan ledger demo `20260725_0006`) sebelum bootstrap user. Backend berjalan langsung dari Python virtual environment melalui FastAPI/Uvicorn dan NSSM pada Windows VPS atau PM2 bila sesuai. Frontend di-build oleh Vite ke `frontend/dist` lalu dilayani Nginx; Nginx menjadi reverse proxy REST dan WebSocket ke Uvicorn `127.0.0.1:8000`. Ini adalah satu-satunya flow deployment project.
 
-Service backend boleh otomatis hidup setelah restart, tetapi koneksi MT5 dan aktivitas bot tidak boleh otomatis dimulai.
+Backend harus tetap bind ke loopback agar client tidak dapat melewati Nginx. Canonical production template berada di `frontend/nginx.conf`; runbook native lengkap berada di `docs/deployment/windows-nginx.md`. Pada setiap blok proxy, template **overwrite** header forwarding dari koneksi Nginx—jangan meneruskan nilai `X-Forwarded-For` yang diberikan client. Template juga mencakup kedua route WebSocket yang berbeda: exact `/api/v1/ws` dan prefix `/api/v1/ws/`, serta edge denial untuk `/docs`, `/redoc`, dan `/openapi.json`.
+
+Set `AUTH_TRUSTED_PROXIES` hanya ke IP/CIDR peer Nginx yang eksplisit; untuk Nginx pada host yang sama gunakan loopback yang sesuai konfigurasi listen, bukan subnet luas. Production wajib `APP_ENV=production`, HTTPS, dan `AUTH_COOKIE_SECURE=true`. Service backend boleh otomatis hidup setelah restart, tetapi koneksi MT5 dan aktivitas bot tidak boleh otomatis dimulai.
 
 ## Catatan keamanan
 
 - Trade mode demo diperiksa ulang di backend sebelum operasi MT5 dan tepat sebelum `order_check`/`order_send`; akun real atau contest yang tidak sesuai selalu ditolak.
-- Demo execution default disabled, hanya `MANUAL_DEMO`, membutuhkan admin token dan rate limit, serta engine selalu kembali `STOPPED` saat startup.
-- Password dan admin token menggunakan `SecretStr`, tidak ada di response schema, dan disanitasi dari error log.
-- Execution request/result, order, posisi, deal, event, settings, engine state, dan reconciliation disimpan pada delapan tabel ledger migration `20260725_0006`.
-- Dashboard tidak menyimpan admin token, password, atau secret di `localStorage`/`sessionStorage`.
-- `.env` diabaikan Git dan tidak boleh disalin ke frontend.
-- CORS tetap explicit; autentikasi admin demo tidak menggantikan HTTPS/reverse-proxy hardening saat akses jaringan.
-- Dokumentasi API dinonaktifkan saat `APP_ENV=production`.
+- Demo execution default disabled, hanya `MANUAL_DEMO`, membutuhkan sesi/RBAC serta rate limit, dan engine selalu kembali `STOPPED` saat startup.
+- Access/refresh token berada pada cookie `HttpOnly`, `SameSite=Strict`; `Secure` wajib pada production. CSRF memakai cookie/header double-submit untuk mutation berbasis cookie.
+- Access/refresh token tidak disimpan di `localStorage` atau `sessionStorage`; storage browser hanya boleh berisi preferensi tampilan non-rahasia.
+- Password dan token disimpan/ditangani secara tersanitasi; jangan taruh credential dalam response, source, log, build frontend, atau command bootstrap.
+- `.env` diabaikan Git dan tidak boleh disalin ke frontend. `.env.example` hanya berisi placeholder aman.
+- Login memiliki rate limit per source IP dan temporary account lockout; akurasi source IP bergantung pada overwrite XFF oleh Nginx dan `AUTH_TRUSTED_PROXIES` yang minimal.
+- CORS tetap explicit. Production tidak mengekspos docs/OpenAPI dan tidak menerima direct access ke Uvicorn.
 
-## Backtesting Milestone 7
+## Backtesting Milestone 10.2
 
 ### Endpoint
 
 | Method | Endpoint                                       | Fungsi                                                      |
 | ------ | ---------------------------------------------- | ----------------------------------------------------------- |
+| POST   | `/api/v1/backtests/uploads`                    | Stage dan validasi multipart CSV (HTTP 201)                 |
 | POST   | `/api/v1/backtests`                            | Validasi konfigurasi dan antrekan background job (HTTP 202) |
 | GET    | `/api/v1/backtests`                            | Daftar run                                                  |
+| GET    | `/api/v1/backtests/queue`                      | ID/count/capacity antrean FIFO                              |
+| GET    | `/api/v1/backtests/resources`                  | Estimasi candle, memori, dan staged bytes                   |
+| GET    | `/api/v1/backtests/limits`                     | Batas efektif coordinator                                   |
 | GET    | `/api/v1/backtests/{backtest_id}`              | Status, progress, konfigurasi, dan statistik                |
 | POST   | `/api/v1/backtests/{backtest_id}/cancel`       | Cooperative cancellation                                    |
 | GET    | `/api/v1/backtests/{backtest_id}/trades`       | Trade hasil simulasi                                        |
@@ -470,7 +635,7 @@ Service backend boleh otomatis hidup setelah restart, tetapi koneksi MT5 dan akt
 | GET    | `/api/v1/backtests/{backtest_id}/report`       | Laporan lengkap dan warning                                 |
 | GET    | `/api/v1/backtests/{backtest_id}/export.csv`   | Export trade CSV                                            |
 
-POST tidak menunggu seluruh simulasi. Pantau `processed_candles`, `total_candles`, `progress_percent`, `current_time`, dan `estimated_remaining_seconds` melalui endpoint detail. Background task hanya dibuat saat run dikirim dan dihentikan secara cooperative pada cancel atau shutdown backend.
+POST tidak menunggu seluruh simulasi. Pantau `processed_candles`, `total_candles`, `progress_percent`, `current_time`, dan `estimated_remaining_seconds` melalui endpoint detail. Coordinator FIFO menjalankan jumlah worker/slot pending yang dibatasi konfigurasi, melakukan recovery saat startup, dan merekam terminal reason stabil pada timeout/shutdown/restart.
 
 ### Contoh konfigurasi
 
@@ -479,6 +644,7 @@ POST tidak menunggu seluruh simulasi. Pantau `processed_candles`, `total_candles
   "symbol": "XAUUSD",
   "start_date": "2025-01-01",
   "end_date": "2025-06-30",
+  "timeframe": "M5",
   "initial_balance": 10000,
   "risk_per_trade_percent": 1,
   "maximum_open_positions": 1,
@@ -496,12 +662,11 @@ POST tidak menunggu seluruh simulasi. Pantau `processed_candles`, `total_candles
   "risk_settings": {},
   "close_open_positions_at_end": true,
   "same_bar_policy": "SL_FIRST",
-  "source": "MT5",
-  "csv_path": null
+  "source": "MT5"
 }
 ```
 
-Untuk CSV, gunakan `source: "CSV"` dan isi `csv_path` server. Kolom inti adalah `timestamp,open,high,low,close`; `volume` dan `spread` opsional kecuali `spread_mode` adalah `HISTORICAL`. Timestamp wajib ISO 8601 bertimezone, unik, ascending, dan OHLC harus valid.
+Untuk CSV, upload multipart `.csv` terlebih dahulu ke `/api/v1/backtests/uploads`, lalu gunakan `source: "CSV"` dan `csv_upload_id` UUID yang dikembalikan. Caller tidak dapat mengirim path filesystem server. Kolom inti adalah `timestamp,open,high,low,close`; `volume`, `tick_volume`, dan `spread` opsional kecuali `spread_mode` adalah `HISTORICAL`. Timestamp wajib ISO 8601 bertimezone, unik, ascending, dan OHLC harus valid.
 
 ### Aturan anti-bias dan asumsi
 
@@ -587,4 +752,4 @@ npm run typecheck --prefix frontend
 npm run build --prefix frontend
 ```
 
-Melalui Swagger: hubungkan MT5 demo dengan `/mt5/connect`, kirim konfigurasi ke `/backtests`, poll detail sampai terminal, lalu baca report/equity/CSV. Paper engine dan demo execution engine tidak perlu dijalankan; subsystem backtest tetap read-only dan tidak memanggil API pengiriman order.
+Melalui dashboard terautentikasi: hubungkan MT5 demo, kirim konfigurasi backtest, poll detail sampai terminal, lalu baca report/equity/CSV. Permission minimum mengikuti matriks Milestone 10.1. Paper engine dan demo execution engine tidak perlu dijalankan; subsystem backtest tetap read-only terhadap broker dan tidak memanggil API pengiriman order.

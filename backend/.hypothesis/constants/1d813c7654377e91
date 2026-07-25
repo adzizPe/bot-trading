@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\safety\monitor.py
+# hypothesis_version: 6.151.9
+
+[0.0, 2.0, 5.0, 1000, '0.9.5', 'DEGRADED', 'ERROR', 'HEALTHY', 'HEARTBEAT_DEGRADED', 'HEARTBEAT_RECOVERED', 'HeartbeatMonitor', 'INFO', 'SELECT 1', 'STARTING', 'backend', 'backtest', 'build', 'checked_at', 'components', 'connected', 'database', 'demo_verified', 'frontend', 'heartbeat', 'interval_seconds', 'last_checked_at', 'last_heartbeat_at', 'latency_ms', 'market', 'milestone-9.5', 'mt5', 'paper', 'risk', 'safety', 'safety-heartbeat', 'status', 'uptime_seconds', 'version', 'websocket']

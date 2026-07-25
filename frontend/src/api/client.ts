@@ -13,6 +13,7 @@ import type {
   DemoPosition,
   DemoReconciliation,
   DemoStatus,
+  FullHealth,
   Health,
   Indicator,
   MT5Account,
@@ -26,35 +27,44 @@ import type {
   PaperPosition,
   PaperStatistics,
   PaperTrade,
+  RiskFeasibilityResult,
   RiskSettings,
   RiskStatus,
+  SafetyEvent,
+  SafetyStatus,
   Signal,
   TradePlan,
 } from './types'
 
 const DEFAULT_API = import.meta.env.VITE_API_BASE_URL || '/api/v1'
+const ALLOWED_ORIGINS = String(import.meta.env.VITE_API_ALLOWED_ORIGINS || '')
+  .split(',').map((value) => value.trim()).filter(Boolean)
 const SECRET_PATTERN = /(password|secret|token|authorization|traceback)/gi
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
+
+export interface AuthUser {
+  user_id: string
+  username: string
+  role: string
+  permissions: string[]
+  is_active: boolean
+  access_expires_at: string
+}
 
 export class ApiError extends Error {
-  constructor(
-    message: string,
-    public readonly status: number,
-  ) {
+  constructor(message: string, public readonly status: number) {
     super(message)
     this.name = 'ApiError'
   }
 }
 
 export interface DashboardPreferences {
-  apiBaseUrl: string
-  websocketUrl: string
   refreshInterval: number
   timezone: string
   compact: boolean
 }
+
 const defaultPreferences: DashboardPreferences = {
-  apiBaseUrl: DEFAULT_API,
-  websocketUrl: '',
   refreshInterval: 15000,
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
   compact: false,
@@ -63,48 +73,61 @@ const defaultPreferences: DashboardPreferences = {
 export function sanitizeMessage(value: unknown): string {
   const raw = value instanceof Error ? value.message : String(value || 'Request failed')
   const singleLine = raw.split('\n')[0].slice(0, 240)
-  return SECRET_PATTERN.test(singleLine)
-    ? 'Sensitive error details were hidden'
-    : singleLine.replace(SECRET_PATTERN, '[hidden]')
+  SECRET_PATTERN.lastIndex = 0
+  if (SECRET_PATTERN.test(singleLine)) return 'Sensitive error details were hidden'
+  SECRET_PATTERN.lastIndex = 0
+  return singleLine.replace(SECRET_PATTERN, '[hidden]')
 }
 
 export function loadPreferences(): DashboardPreferences {
   try {
-    const stored = JSON.parse(localStorage.getItem('dashboard-preferences') || '{}') as Partial<DashboardPreferences>
-    return {
-      apiBaseUrl: typeof stored.apiBaseUrl === 'string' ? stored.apiBaseUrl : defaultPreferences.apiBaseUrl,
-      websocketUrl: typeof stored.websocketUrl === 'string' ? stored.websocketUrl : '',
-      refreshInterval: typeof stored.refreshInterval === 'number' ? stored.refreshInterval : 15000,
+    const stored = JSON.parse(localStorage.getItem('dashboard-preferences') || '{}') as Record<string, unknown>
+    const safe = {
+      refreshInterval: typeof stored.refreshInterval === 'number' ? Math.max(5000, stored.refreshInterval) : defaultPreferences.refreshInterval,
       timezone: typeof stored.timezone === 'string' ? stored.timezone : defaultPreferences.timezone,
       compact: stored.compact === true,
     }
+    if ('apiBaseUrl' in stored || 'websocketUrl' in stored) savePreferences(safe)
+    return safe
   } catch {
     return defaultPreferences
   }
 }
 
 export function savePreferences(value: DashboardPreferences): void {
-  const safe: DashboardPreferences = {
-    apiBaseUrl: value.apiBaseUrl,
-    websocketUrl: value.websocketUrl,
+  localStorage.setItem('dashboard-preferences', JSON.stringify({
     refreshInterval: Math.max(5000, value.refreshInterval),
     timezone: value.timezone,
     compact: value.compact,
-  }
-  localStorage.setItem('dashboard-preferences', JSON.stringify(safe))
+  }))
+}
+
+function allowedOrigin(origin: string): boolean {
+  return origin === window.location.origin || ALLOWED_ORIGINS.includes(origin)
 }
 
 export function apiUrl(path: string): string {
-  return `${loadPreferences().apiBaseUrl.replace(/\/$/, '')}${path}`
+  const base = new URL(DEFAULT_API, window.location.origin)
+  if (!/^https?:$/.test(base.protocol) || !allowedOrigin(base.origin)) {
+    throw new ApiError('API origin is not allowed by this build', 0)
+  }
+  const normalizedBase = base.pathname.replace(/\/$/, '')
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  return base.origin === window.location.origin && DEFAULT_API.startsWith('/')
+    ? `${normalizedBase}${normalizedPath}`
+    : `${base.origin}${normalizedBase}${normalizedPath}`
 }
 
 export function websocketUrl(path: string): string {
-  const configured = loadPreferences().websocketUrl.trim()
-  if (configured) return `${configured.replace(/\/$/, '')}${path}`
-  const base = apiUrl(path)
-  const url = new URL(base, window.location.origin)
+  const url = new URL(apiUrl(path), window.location.origin)
+  if (!allowedOrigin(url.origin)) throw new ApiError('WebSocket origin is not allowed by this build', 0)
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
   return url.toString()
+}
+
+export function readCsrfToken(): string {
+  const entry = document.cookie.split(';').map((value) => value.trim()).find((value) => value.startsWith('csrf_token='))
+  return entry ? decodeURIComponent(entry.slice('csrf_token='.length)) : ''
 }
 
 async function parseError(response: Response): Promise<string> {
@@ -112,71 +135,97 @@ async function parseError(response: Response): Promise<string> {
     const data = (await response.json()) as { detail?: unknown }
     if (typeof data.detail === 'string') return sanitizeMessage(data.detail)
     if (Array.isArray(data.detail)) return 'Some fields are invalid. Review the form.'
+    if (data.detail && typeof data.detail === 'object') {
+      const detail = data.detail as Record<string, unknown>
+      if (typeof detail.reason === 'string') {
+        const guardian = typeof detail.guardian === 'string' ? ` (${detail.guardian})` : ''
+        return sanitizeMessage(`${detail.reason}${guardian}`)
+      }
+    }
   } catch {
     // Deliberately hide non-JSON server output and stack traces.
   }
   return `Request failed (HTTP ${response.status})`
 }
 
-export async function request<T>(
-  path: string,
-  options: RequestInit = {},
-): Promise<T> {
+type AuthFailureListener = (status: 401 | 403) => void
+const authFailureListeners = new Set<AuthFailureListener>()
+export function subscribeAuthFailure(listener: AuthFailureListener): () => void {
+  authFailureListeners.add(listener)
+  return () => authFailureListeners.delete(listener)
+}
+function emitAuthFailure(status: 401 | 403) {
+  authFailureListeners.forEach((listener) => listener(status))
+}
+
+async function fetchResponse(path: string, options: RequestInit = {}): Promise<Response> {
   const headers = new Headers(options.headers)
+  const method = (options.method || 'GET').toUpperCase()
   if (options.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
-  let response: Response
+  if (!SAFE_METHODS.has(method)) {
+    const csrf = readCsrfToken()
+    if (csrf) headers.set('X-CSRF-Token', csrf)
+  }
   try {
-    response = await fetch(apiUrl(path), { ...options, headers })
+    return await fetch(apiUrl(path), { ...options, method, headers, credentials: 'include' })
   } catch (error) {
     throw new ApiError(sanitizeMessage(error), 0)
   }
-  if (!response.ok) throw new ApiError(await parseError(response), response.status)
+}
+
+let refreshFlight: Promise<AuthUser> | null = null
+async function refreshCookies(): Promise<AuthUser> {
+  if (!refreshFlight) {
+    refreshFlight = (async () => {
+      const response = await fetchResponse('/auth/refresh', { method: 'POST' })
+      if (!response.ok) throw new ApiError(await parseError(response), response.status)
+      return (await response.json()) as AuthUser
+    })().finally(() => { refreshFlight = null })
+  }
+  return refreshFlight
+}
+
+function isRefreshable(path: string): boolean {
+  return path !== '/auth/login' && path !== '/auth/refresh'
+}
+
+export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  let response = await fetchResponse(path, options)
+  if (response.status === 401 && isRefreshable(path)) {
+    try {
+      await refreshCookies()
+      response = await fetchResponse(path, options)
+    } catch {
+      emitAuthFailure(401)
+      throw new ApiError('Your session has expired', 401)
+    }
+  }
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) emitAuthFailure(response.status)
+    throw new ApiError(await parseError(response), response.status)
+  }
   if (response.status === 204) return undefined as T
   return (await response.json()) as T
 }
 
 const get = <T>(path: string) => request<T>(path)
-const post = <T>(path: string, body?: unknown) => request<T>(path, {
-  method: 'POST',
+const post = <T>(path: string, body?: unknown, headers?: HeadersInit) => request<T>(path, {
+  method: 'POST', headers,
   body: body === undefined ? undefined : JSON.stringify(body),
 })
-const put = <T>(path: string, body: unknown) => request<T>(path, {
-  method: 'PUT',
-  body: JSON.stringify(body),
-})
-
-let demoAdminToken = ''
-
-export function setDemoAdminToken(token: string): void {
-  demoAdminToken = token.trim()
-}
-
-export function clearDemoAdminToken(): void {
-  demoAdminToken = ''
-}
-
-export function hasDemoAdminToken(): boolean {
-  return demoAdminToken.length > 0
-}
-
-const demoRequest = <T>(path: string, options: RequestInit = {}) => {
-  if (!demoAdminToken) throw new ApiError('Demo admin session is not active', 401)
-  const headers = new Headers(options.headers)
-  headers.set('X-Admin-Token', demoAdminToken)
-  return request<T>(path, { ...options, headers })
-}
-const demoGet = <T>(path: string) => demoRequest<T>(path)
-const demoPost = <T>(path: string, body?: unknown, idempotencyKey?: string) => {
-  const headers = new Headers()
-  if (idempotencyKey) headers.set('X-Idempotency-Key', idempotencyKey)
-  return demoRequest<T>(path, {
-    method: 'POST', headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  })
-}
+const put = <T>(path: string, body: unknown) => request<T>(path, { method: 'PUT', body: JSON.stringify(body) })
 
 export const api = {
+  login: (username: string, password: string) => post<AuthUser>('/auth/login', { username, password }),
+  refreshAuth: () => refreshCookies(),
+  logout: async () => { await post<unknown>('/auth/logout') },
+  me: () => get<AuthUser>('/auth/me'),
   health: () => get<Health>('/health'),
+  healthFull: () => get<FullHealth>('/health/full'),
+  safetyStatus: () => get<SafetyStatus>('/safety/status'),
+  safetyEmergencyStop: (reason: string) => post<SafetyStatus>('/safety/emergency-stop', { reason, confirmation_text: 'EMERGENCY STOP' }),
+  safetyEmergencyReset: () => post<SafetyStatus>('/safety/emergency-reset', { confirmation_text: 'RESET EMERGENCY STOP' }),
+  safetyEvents: () => get<SafetyEvent[]>('/safety/events?limit=100'),
   mt5Status: () => get<MT5Status>('/mt5/status'),
   mt5Connect: () => post<MT5Status>('/mt5/connect'),
   mt5Disconnect: () => post<MT5Status>('/mt5/disconnect'),
@@ -197,6 +246,9 @@ export const api = {
   riskSettings: () => get<RiskSettings>('/risk/settings'),
   updateRiskSettings: (body: Partial<RiskSettings>) => put<RiskSettings>('/risk/settings', body),
   riskStatus: () => get<RiskStatus>('/risk/status'),
+  riskFeasibility: (signalId: string, signal?: AbortSignal) => request<RiskFeasibilityResult>(
+    `/risk/feasibility?signal_id=${encodeURIComponent(signalId)}`, { method: 'GET', signal, cache: 'no-store' },
+  ),
   tradePlans: () => get<TradePlan[]>('/risk/trade-plans?limit=100&offset=0'),
   tradePlan: (id: string) => get<TradePlan>(`/risk/trade-plans/${encodeURIComponent(id)}`),
   createTradePlan: (signalId: string) => post<TradePlan>('/risk/trade-plan', { signal_id: signalId }),
@@ -216,26 +268,36 @@ export const api = {
   backtestTrades: (id: string) => get<BacktestTrade[]>(`/backtests/${encodeURIComponent(id)}/trades?limit=10000`),
   backtestEquity: (id: string) => get<BacktestEquity[]>(`/backtests/${encodeURIComponent(id)}/equity-curve?limit=10000`),
   backtestReport: (id: string) => get<{ backtest_id: string; report: Record<string, unknown>; warnings: string[]; created_at: string }>(`/backtests/${encodeURIComponent(id)}/report`),
-  demoStatus: () => demoGet<DemoStatus>('/demo/status'),
-  demoAction: (action: 'start' | 'pause' | 'stop') => demoPost<DemoStatus['engine']>(`/demo/${action}`),
-  demoEmergencyStop: () => demoPost<{ engine: DemoStatus['engine']; close_positions_requested: boolean; close_positions_effective: boolean }>('/demo/emergency-stop', { close_positions: false }),
-  demoExecutions: () => demoGet<DemoExecution[]>('/demo/executions?limit=100&offset=0'),
-  demoOrders: () => demoGet<DemoOrder[]>('/demo/orders?limit=100&offset=0'),
-  demoPositions: () => demoGet<DemoPosition[]>('/demo/positions?limit=100'),
-  demoDeals: () => demoGet<DemoDeal[]>('/demo/deals?limit=100'),
-  executeDemo: (tradePlanId: string, idempotencyKey: string) => demoPost<DemoExecution>('/demo/execute', {
-    trade_plan_id: tradePlanId,
-    idempotency_key: idempotencyKey,
-    confirmation_text: 'EXECUTE DEMO ORDER',
-  }, idempotencyKey),
-  closeDemoPosition: (positionId: string) => demoPost<DemoOperation>(`/demo/positions/${encodeURIComponent(positionId)}/close`),
-  breakEvenDemoPosition: (positionId: string) => demoPost<DemoOperation>(`/demo/positions/${encodeURIComponent(positionId)}/break-even`),
-  reconcileDemo: () => demoPost<DemoReconciliation>('/demo/reconcile'),
+  demoStatus: () => get<DemoStatus>('/demo/status'),
+  demoAction: (action: 'start' | 'pause' | 'stop') => post<DemoStatus['engine']>(`/demo/${action}`),
+  demoEmergencyStop: () => post<{ engine: DemoStatus['engine']; close_positions_requested: boolean; close_positions_effective: boolean }>('/demo/emergency-stop', { close_positions: false }),
+  demoExecutions: () => get<DemoExecution[]>('/demo/executions?limit=100&offset=0'),
+  demoOrders: () => get<DemoOrder[]>('/demo/orders?limit=100&offset=0'),
+  demoPositions: () => get<DemoPosition[]>('/demo/positions?limit=100'),
+  demoDeals: () => get<DemoDeal[]>('/demo/deals?limit=100'),
+  executeDemo: (tradePlanId: string, idempotencyKey: string) => post<DemoExecution>('/demo/execute', {
+    trade_plan_id: tradePlanId, idempotency_key: idempotencyKey, confirmation_text: 'EXECUTE DEMO ORDER',
+  }, { 'X-Idempotency-Key': idempotencyKey }),
+  closeDemoPosition: (positionId: string) => post<DemoOperation>(`/demo/positions/${encodeURIComponent(positionId)}/close`),
+  breakEvenDemoPosition: (positionId: string) => post<DemoOperation>(`/demo/positions/${encodeURIComponent(positionId)}/break-even`),
+  reconcileDemo: () => post<DemoReconciliation>('/demo/reconcile'),
 }
 
 export async function downloadBacktestCsv(id: string): Promise<void> {
-  const response = await fetch(apiUrl(`/backtests/${encodeURIComponent(id)}/export.csv`))
-  if (!response.ok) throw new ApiError(await parseError(response), response.status)
+  let response = await fetchResponse(`/backtests/${encodeURIComponent(id)}/export.csv`, { headers: { Accept: 'text/csv' } })
+  if (response.status === 401) {
+    try {
+      await refreshCookies()
+      response = await fetchResponse(`/backtests/${encodeURIComponent(id)}/export.csv`, { headers: { Accept: 'text/csv' } })
+    } catch {
+      emitAuthFailure(401)
+      throw new ApiError('Your session has expired', 401)
+    }
+  }
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) emitAuthFailure(response.status)
+    throw new ApiError(await parseError(response), response.status)
+  }
   const blob = await response.blob()
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')

@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\schemas\backtest.py
+# hypothesis_version: 6.151.9
+
+[1.5, 100, 10000, 'BacktestRequest', 'CANCELLED', 'COMPLETED', 'CSV', 'EMA_RSI_ATR_MTF_V1', 'FAILED', 'FIXED', 'HISTORICAL', 'MT5', 'PENDING', 'RUNNING', 'SL_FIRST', 'TP_FIRST', 'XAUUSD', 'after', 'allow', 'forbid']

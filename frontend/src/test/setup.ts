@@ -1,12 +1,11 @@
 import '@testing-library/jest-dom/vitest'
 import { afterEach, vi } from 'vitest'
 import { cleanup } from '@testing-library/react'
-import { clearDemoAdminToken } from '../api/client'
 
 afterEach(() => {
   cleanup()
-  clearDemoAdminToken()
   localStorage.clear()
+  sessionStorage.clear()
   vi.restoreAllMocks()
 })
 

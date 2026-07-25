@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\demo\types.py
+# hypothesis_version: 6.151.9
+
+['1', 'ACCEPTED', 'APPROVED', 'BUY', 'ExecutionPlan', 'REJECTED', 'RETRYABLE', 'SELL', 'UNKNOWN', 'direction', 'position_size_lots', 'price', 'signal_id', 'status', 'stop_loss', 'symbol', 'take_profit', 'tick_size', 'trade_plan_id', 'volume', 'volume_max', 'volume_min', 'volume_step']

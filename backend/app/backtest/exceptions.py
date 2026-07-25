@@ -20,3 +20,11 @@ class BacktestRiskRejected(BacktestError):
 
 class BacktestStateError(BacktestError):
     """Raised for an invalid position or account state transition."""
+
+
+class BacktestQueueFullError(BacktestStateError):
+    """Raised when bounded running and pending capacity is exhausted."""
+
+
+class BacktestAdmissionClosedError(BacktestStateError):
+    """Raised when submissions arrive during coordinator shutdown."""

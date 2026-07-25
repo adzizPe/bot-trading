@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\schemas\safety.py
+# hypothesis_version: 6.151.9
+
+[255, 'EMERGENCY STOP', 'RESET EMERGENCY STOP']

@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\analysis\market_structure.py
+# hypothesis_version: 6.151.9
+
+['BEARISH', 'BULLISH', 'EH', 'EL', 'HH', 'HL', 'LH', 'LL', 'NEUTRAL', 'high', 'high_pattern', 'low', 'low_pattern', 'structure']

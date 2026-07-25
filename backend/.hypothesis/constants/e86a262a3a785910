@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\backtest\statistics.py
+# hypothesis_version: 6.151.9
+
+[100, '0', 'average_loss', 'average_risk_reward', 'average_win', 'closed_at', 'consecutive_losses', 'consecutive_wins', 'entry_price', 'expectancy', 'final_balance', 'gross_loss', 'gross_profit', 'losing_trades', 'maximum_drawdown', 'net_pnl', 'net_profit', 'opened_at', 'profit_factor', 'sharpe_ratio', 'stop_loss', 'take_profit', 'total_return_percent', 'total_trades', 'trade_id', 'win_rate', 'winning_trades']

@@ -15,6 +15,8 @@ from app.api.dependencies import (
 )
 
 from app.mt5.exceptions import MT5Error
+from app.auth.dependencies import require_permission
+from app.auth.permissions import Permission
 
 from app.paper.engine import PaperTradingEngine
 
@@ -60,7 +62,9 @@ from app.schemas.paper import (
 )
 
 
-router = APIRouter(prefix="/paper", tags=["paper-trading"])
+router = APIRouter(prefix="/paper", tags=["paper-trading"], dependencies=[
+    Depends(require_permission(Permission.READ_DASHBOARD))
+])
 
 EngineDependency = Annotated[PaperTradingEngine, Depends(get_paper_engine)]
 
@@ -106,7 +110,9 @@ async def paper_settings(service: AccountDependency) -> Any:
 
 
 
-@router.put("/settings", response_model=PaperSettingsResponse)
+@router.put("/settings", response_model=PaperSettingsResponse, dependencies=[
+    Depends(require_permission(Permission.PAPER_CONTROL))
+])
 
 async def update_paper_settings(
 
@@ -131,7 +137,9 @@ async def paper_account(service: AccountDependency) -> Any:
 
 
 
-@router.post("/account/reset", response_model=PaperAccountResponse)
+@router.post("/account/reset", response_model=PaperAccountResponse, dependencies=[
+    Depends(require_permission(Permission.PAPER_CONTROL))
+])
 
 async def reset_paper_account(
 
@@ -162,7 +170,9 @@ async def paper_status(engine: EngineDependency) -> Any:
 
 
 
-@router.post("/start", response_model=PaperEngineStatusResponse)
+@router.post("/start", response_model=PaperEngineStatusResponse, dependencies=[
+    Depends(require_permission(Permission.PAPER_CONTROL))
+])
 
 async def start_paper(engine: EngineDependency) -> Any:
 
@@ -170,7 +180,9 @@ async def start_paper(engine: EngineDependency) -> Any:
 
 
 
-@router.post("/pause", response_model=PaperEngineStatusResponse)
+@router.post("/pause", response_model=PaperEngineStatusResponse, dependencies=[
+    Depends(require_permission(Permission.PAPER_CONTROL))
+])
 
 async def pause_paper(engine: EngineDependency) -> Any:
 
@@ -178,7 +190,9 @@ async def pause_paper(engine: EngineDependency) -> Any:
 
 
 
-@router.post("/stop", response_model=PaperEngineStatusResponse)
+@router.post("/stop", response_model=PaperEngineStatusResponse, dependencies=[
+    Depends(require_permission(Permission.PAPER_CONTROL))
+])
 
 async def stop_paper(engine: EngineDependency) -> Any:
     try:
@@ -191,7 +205,9 @@ async def stop_paper(engine: EngineDependency) -> Any:
 
 
 
-@router.post("/emergency-stop", response_model=PaperEngineStatusResponse)
+@router.post("/emergency-stop", response_model=PaperEngineStatusResponse, dependencies=[
+    Depends(require_permission(Permission.PAPER_CONTROL))
+])
 
 async def emergency_stop_paper(engine: EngineDependency) -> Any:
     try:
@@ -204,7 +220,9 @@ async def emergency_stop_paper(engine: EngineDependency) -> Any:
 
 
 
-@router.post("/open", response_model=PaperPositionResponse)
+@router.post("/open", response_model=PaperPositionResponse, dependencies=[
+    Depends(require_permission(Permission.PAPER_TRADE))
+])
 
 async def open_paper_position(
 
@@ -222,8 +240,8 @@ async def open_paper_position(
 
 
 @router.post(
-
-    "/positions/{position_id}/close", response_model=PaperPositionResponse
+    "/positions/{position_id}/close", response_model=PaperPositionResponse,
+    dependencies=[Depends(require_permission(Permission.PAPER_TRADE))],
 )
 
 async def close_paper_position(

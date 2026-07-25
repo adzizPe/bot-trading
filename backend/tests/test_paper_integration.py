@@ -1,10 +1,10 @@
 import pytest
-from fastapi.testclient import TestClient
 
 from app.config.settings import get_settings
 from app.main import create_app
 from app.mt5.client import MetaTrader5Client
 from app.mt5.manager import MT5ConnectionManager
+from tests.auth_helpers import authenticated_client
 
 
 @pytest.mark.integration
@@ -13,7 +13,7 @@ def test_paper_engine_with_demo_market_prices() -> None:
     if not (settings.mt5_login and settings.mt5_password and settings.mt5_server):
         pytest.skip("MT5 demo credentials are not configured")
     manager = MT5ConnectionManager(MetaTrader5Client(), settings)
-    with TestClient(create_app(settings, manager)) as api:
+    with authenticated_client(create_app(settings, manager)) as api:
         initial = api.get("/api/v1/paper/status")
         assert initial.status_code == 200
         assert initial.json()["scheduler_running"] is False
@@ -48,6 +48,8 @@ def test_paper_engine_with_demo_market_prices() -> None:
         stopped = api.post("/api/v1/paper/stop")
         assert stopped.status_code == 200
         assert stopped.json()["status"] == "STOPPED"
-        assert "/api/v1/paper/open" in api.get("/openapi.json").json()["paths"]
+        assert "/api/v1/paper/open" in api.app.openapi()[  # type: ignore[attr-defined]
+            "paths"
+        ]
         assert api.post("/api/v1/mt5/disconnect").status_code == 200
         assert manager.order_send_calls == 0

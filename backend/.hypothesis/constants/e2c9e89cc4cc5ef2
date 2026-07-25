@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\paper\execution.py
+# hypothesis_version: 6.151.9
+
+['+00:00', 'BREAK_EVEN', 'BUY', 'OPEN', 'POINTS', 'SELL', 'TRAILING_STOP', 'Z', 'adjustment_logs', 'ask', 'atr_distance', 'bid', 'commission', 'direction', 'entry_price', 'initial_stop_loss', 'market_price', 'new', 'new_stop_loss', 'old', 'old_stop_loss', 'opened_at', 'point', 'position_size_lots', 'reason', 'status', 'stop_loss', 'symbol', 'take_profit', 'tick_size', 'tick_value', 'timestamp', 'trade_plan_id', 'trade_tick_size', 'trade_tick_value', 'trigger_price', 'value', 'volume']

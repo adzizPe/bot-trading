@@ -1,10 +1,10 @@
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi.testclient import TestClient
 
 from app.main import create_app
 from app.mt5.manager import MT5ConnectionManager
+from tests.auth_helpers import authenticated_client
 from tests.fakes import FakeMT5Client
 from tests.test_mt5_manager import make_settings
 
@@ -82,12 +82,12 @@ def test_analysis_endpoints_and_openapi_contract() -> None:
     settings = make_settings()
     manager = MT5ConnectionManager(FakeMT5Client(), settings)
     app = create_app(settings, manager, FakeAnalysisService())  # type: ignore[arg-type]
-    with TestClient(app) as api:
+    with authenticated_client(app) as api:
         assert api.get("/api/v1/analysis/indicators?timeframe=M15").status_code == 200
         assert api.get("/api/v1/analysis/multi-timeframe").status_code == 200
         generated = api.post("/api/v1/analysis/signal", json={})
         assert generated.status_code == 200
         assert generated.json()["direction"] == "BUY"
         assert api.get("/api/v1/analysis/latest-signal").status_code == 200
-        paths = api.get("/openapi.json").json()["paths"]
+        paths = app.openapi()["paths"]
         assert "/api/v1/analysis/signal" in paths

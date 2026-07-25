@@ -1,10 +1,16 @@
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 
-from app.api.dependencies import get_trade_plan_service
+from app.api.dependencies import get_risk_feasibility_service, get_trade_plan_service
+from app.auth.dependencies import require_permission
+from app.auth.permissions import Permission
 from app.risk.exceptions import RiskError, RiskNotFoundError
 from app.risk.service import TradePlanService
+from app.risk_feasibility.service import (
+    FeasibilitySignalNotFoundError,
+    RiskFeasibilityService,
+)
 from app.schemas.risk import (
     RiskSettingsResponse,
     RiskSettingsUpdate,
@@ -13,8 +19,15 @@ from app.schemas.risk import (
     TradePlanResponse,
 )
 
-router = APIRouter(prefix="/risk", tags=["risk-management"])
+from app.schemas.risk_feasibility import RiskFeasibilityResponse
+
+router = APIRouter(prefix="/risk", tags=["risk-management"], dependencies=[
+    Depends(require_permission(Permission.READ_DASHBOARD))
+])
 ServiceDependency = Annotated[TradePlanService, Depends(get_trade_plan_service)]
+FeasibilityDependency = Annotated[
+    RiskFeasibilityService, Depends(get_risk_feasibility_service)
+]
 
 
 def _http_error(error: RiskError) -> HTTPException:
@@ -31,7 +44,9 @@ async def risk_settings(service: ServiceDependency) -> Any:
     return await service.get_settings()
 
 
-@router.put("/settings", response_model=RiskSettingsResponse)
+@router.put("/settings", response_model=RiskSettingsResponse, dependencies=[
+    Depends(require_permission(Permission.RISK_SETTINGS_UPDATE))
+])
 async def update_risk_settings(
     service: ServiceDependency, payload: RiskSettingsUpdate
 ) -> Any:
@@ -46,7 +61,44 @@ async def risk_status(service: ServiceDependency) -> Any:
     return await service.status()
 
 
-@router.post("/trade-plan", response_model=TradePlanResponse)
+@router.get("/feasibility", response_model=RiskFeasibilityResponse, dependencies=[
+    Depends(require_permission(Permission.RISK_FEASIBILITY))
+])
+async def risk_feasibility(
+    request: Request,
+    response: Response,
+    service: FeasibilityDependency,
+    signal_id: str = Query(min_length=1, max_length=36),
+) -> Any:
+    response.headers["Cache-Control"] = "no-store"
+    if (
+        set(request.query_params) != {"signal_id"}
+        or len(request.query_params.multi_items()) != 1
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Invalid query parameters",
+            headers={"Cache-Control": "no-store"},
+        )
+    try:
+        return await service.analyze(signal_id)
+    except FeasibilitySignalNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Signal was not found",
+            headers={"Cache-Control": "no-store"},
+        ) from error
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Risk feasibility analysis failed",
+            headers={"Cache-Control": "no-store"},
+        ) from error
+
+
+@router.post("/trade-plan", response_model=TradePlanResponse, dependencies=[
+    Depends(require_permission(Permission.TRADE_PLAN_CREATE))
+])
 async def create_trade_plan(
     service: ServiceDependency, payload: TradePlanRequest
 ) -> Any:

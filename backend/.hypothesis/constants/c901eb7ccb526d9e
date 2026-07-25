@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\config\settings.py
+# hypothesis_version: 6.151.9
+
+[0.0, 0.2, 0.25, 0.65, 1.0, 1.5, 2.0, 3.0, 5.0, 30.0, 70.0, 300.0, 10000.0, 100, 120, 128, 300, 900, 1000, 1024, 1440, 3600, 8000, 10000, 86400, 604800, 2592000, 9072026, 2147483647, '.env', '/api/v1', '0.0.0.0', 'ATR', 'EMA_RSI_ATR_MTF_V1', 'INFO', 'LONDON,NEW_YORK,ASIA', 'MANUAL_DEMO', 'POINTS', 'Settings', 'UTC', 'XAU/USD Trading Bot', 'XAUUSD', 'after', 'before', 'bot-demo', 'data', 'development', 'http://localhost', 'ignore', 'mt5_login', 'mt5_password', 'mt5_path', 'mt5_server', 'production', 'trading_bot.db', 'utf-8']

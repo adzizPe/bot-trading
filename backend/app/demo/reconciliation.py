@@ -21,6 +21,7 @@ class DemoReconciliationService:
                 run_id, snapshot["positions"], snapshot["orders"],
                 snapshot["deals"], magic
             )
+            await self._manager.confirm_reconciliation()
             await self._repository.add_event(
                 "reconciliation", run_id, "RECONCILIATION_COMPLETED",
                 "Magic-owned broker state reconciled",
@@ -34,5 +35,8 @@ class DemoReconciliationService:
             return result
         except Exception as exc:
             await self._repository.fail_reconciliation(run_id, str(exc))
+            raise
+
+
 class OrderReconciliationService(DemoReconciliationService):
     """Public Milestone 9 reconciliation service facade."""

@@ -1,6 +1,4 @@
-from hmac import compare_digest
-
-from fastapi import Header, HTTPException, Request, status
+from fastapi import Request
 
 from app.demo.service import DemoTradingService
 
@@ -16,6 +14,9 @@ from app.paper.services import (
     PaperTradingStatisticsService,
 )
 from app.risk.service import TradePlanService
+from app.risk_feasibility.service import RiskFeasibilityService
+from app.safety.manager import SafetyManager
+from app.safety.repository import SafetyRepository
 
 
 def get_mt5_manager(request: Request) -> MT5ConnectionManager:
@@ -32,6 +33,10 @@ def get_analysis_service(request: Request) -> AnalysisService:
 
 def get_trade_plan_service(request: Request) -> TradePlanService:
     return request.app.state.trade_plan_service
+
+
+def get_risk_feasibility_service(request: Request) -> RiskFeasibilityService:
+    return request.app.state.risk_feasibility_service
 
 
 def get_backtest_engine(request: Request) -> BacktestEngine:
@@ -62,31 +67,9 @@ def get_demo_service(request: Request) -> DemoTradingService:
     return request.app.state.demo_service
 
 
-async def require_demo_admin(
-    request: Request,
-    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
-) -> None:
-    settings = request.app.state.settings
-    if not settings.demo_execution_enabled:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Demo trading is disabled",
-        )
-    configured = settings.demo_admin_token
-    if configured is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Demo admin authentication is not configured",
-        )
-    supplied = x_admin_token or ""
-    identity = request.client.host if request.client else "unknown"
-    if not await request.app.state.demo_rate_limiter.allow(identity):
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Demo API rate limit exceeded",
-        )
-    if not compare_digest(supplied.encode(), configured.get_secret_value().encode()):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid demo admin credentials",
-        )
+def get_safety_manager(request: Request) -> SafetyManager:
+    return request.app.state.safety_manager
+
+
+def get_safety_repository(request: Request) -> SafetyRepository:
+    return request.app.state.safety_repository

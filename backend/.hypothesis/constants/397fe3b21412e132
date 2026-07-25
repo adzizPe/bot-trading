@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\paper\repository.py
+# hypothesis_version: 6.151.9
+
+[0.0, 100, 200, 1000, 'CLOSED', 'FILLED', 'OPEN', 'STOPPED', 'USD', 'commission', 'default', 'direction', 'entry_price', 'initial_stop_loss', 'opened_at', 'point', 'risk_amount', 'signal_id', 'slippage_points', 'stop_loss', 'symbol', 'take_profit', 'tick_size', 'tick_value', 'trade_plan_id', 'volume']

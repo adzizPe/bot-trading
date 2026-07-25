@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\mt5\connector.py
+# hypothesis_version: 6.151.9
+
+[0.0, 0.5, 1000, 'CONNECTED', 'DEGRADED', 'DISCONNECTED', 'FAILED', 'MetaTrader5Client', 'RECOVERING', 'TIMEOUT', '_asdict', 'app.mt5.client', 'average_latency_ms', 'calls', 'failure', 'failures', 'generation', 'last_latency_ms', 'latency_ms', 'max_latency_ms', 'ok', 'operations', 'reconnects', 'retries', 'spawn', 'timeout', 'timeouts']

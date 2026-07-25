@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\schemas\mt5.py
+# hypothesis_version: 6.151.9
+
+['CONNECTED', 'DEGRADED', 'DISCONNECTED', 'FAILED', 'RECOVERING', 'TIMEOUT', 'demo']

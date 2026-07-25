@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.config.settings import get_settings
 from app.database.base import Base
-from app.database.models import DemoSettings, Signal  # noqa: F401
+from app.database.models import DemoSettings, Role, Signal  # noqa: F401
 
 config = context.config
 if config.config_file_name:

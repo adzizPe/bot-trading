@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\backtest\uploads.py
+# hypothesis_version: 6.151.9
+
+[1024, '*.json', '*.part', '.csv', '.json', '.part', ';', 'M5', 'application/csv', 'backtest_uploads', 'close', 'content-type', 'created_at', 'data', 'first_timestamp', 'high', 'last_timestamp', 'low', 'open', 'rb', 'row_count', 'size', 'spread', 'text/csv', 'text/plain', 'tick_volume', 'timestamp', 'upload_id', 'utf-8', 'utf-8-sig', 'volume', 'xb']

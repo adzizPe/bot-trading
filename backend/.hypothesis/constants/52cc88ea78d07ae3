@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\schemas\demo.py
+# hypothesis_version: 6.151.9
+
+[128, 1000, 3600, 2147483647, 'ACCEPTED', 'BUY', 'EXECUTE DEMO ORDER', 'MANUAL_DEMO', 'REJECTED', 'RESERVED', 'SELL', 'UNKNOWN', '^[A-Za-z0-9-]+$', '^[A-Za-z0-9._:-]+$', 'forbid']

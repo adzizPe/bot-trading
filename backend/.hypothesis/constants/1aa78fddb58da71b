@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\schemas\auth.py
+# hypothesis_version: 6.151.9
+
+[1024, '^[A-Za-z0-9_.-]+$', 'forbid']

@@ -4,6 +4,8 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.dependencies import get_mt5_manager
+from app.auth.dependencies import require_permission
+from app.auth.permissions import Permission
 from app.mt5.exceptions import (
     MT5ConfigurationError,
     MT5Error,
@@ -18,7 +20,9 @@ from app.schemas.mt5 import (
     MT5TerminalResponse,
 )
 
-router = APIRouter(prefix="/mt5", tags=["mt5"])
+router = APIRouter(prefix="/mt5", tags=["mt5"], dependencies=[
+    Depends(require_permission(Permission.READ_DASHBOARD))
+])
 ManagerDependency = Annotated[MT5ConnectionManager, Depends(get_mt5_manager)]
 
 
@@ -46,12 +50,16 @@ async def mt5_status(manager: ManagerDependency) -> dict[str, Any]:
     return manager.status()
 
 
-@router.post("/connect", response_model=MT5StatusResponse)
+@router.post("/connect", response_model=MT5StatusResponse, dependencies=[
+    Depends(require_permission(Permission.MT5_CONTROL))
+])
 async def mt5_connect(manager: ManagerDependency) -> dict[str, Any]:
     return await _run(manager.connect)
 
 
-@router.post("/disconnect", response_model=MT5StatusResponse)
+@router.post("/disconnect", response_model=MT5StatusResponse, dependencies=[
+    Depends(require_permission(Permission.MT5_CONTROL))
+])
 async def mt5_disconnect(manager: ManagerDependency) -> dict[str, Any]:
     return await _run(manager.disconnect)
 

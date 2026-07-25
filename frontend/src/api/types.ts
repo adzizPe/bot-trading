@@ -11,10 +11,9 @@ export type PaperEngineState =
   | 'EMERGENCY_STOPPED'
 
 export interface Health {
-  status: 'healthy'
+  status: string
   service: string
-  environment: string
-  database: 'connected'
+  version: string
 }
 
 export interface MT5Status {
@@ -405,12 +404,14 @@ export type DemoEngineState =
   | 'RISK_LOCKED'
   | 'CONNECTION_LOST'
   | 'ERROR'
+  | 'EMERGENCY_STOP'
   | 'EMERGENCY_STOPPED'
 
 export interface DemoStatus {
   enabled: boolean
   engine: { engine_id: string; status: DemoEngineState; last_error: string | null; updated_at: string }
   broker: MT5Status
+  safety?: SafetyStatus | null
 }
 
 export interface DemoExecution {
@@ -517,4 +518,149 @@ export interface DemoReconciliation {
   trades_count: number
   started_at: string
   completed_at: string | null
+}
+
+export type CircuitBreakerState = 'CLOSED' | 'OPEN'
+export type HeartbeatState = 'STARTING' | 'HEALTHY' | 'DEGRADED' | 'UNHEALTHY'
+
+export interface GuardianStatus {
+  allowed: boolean
+  reason: string | null
+  details: Record<string, unknown>
+}
+
+export interface SafetyStatus {
+  allowed: boolean
+  emergency: { active: boolean; reason: string | null; activated_at: string | null }
+  circuit_breaker: {
+    state: CircuitBreakerState
+    error_count: number
+    threshold: number
+    opened_at: string | null
+    open_until: string | null
+  }
+  heartbeat_status: HeartbeatState
+  guardians: Record<string, GuardianStatus>
+}
+
+export interface HealthComponent {
+  status: string
+  latency_ms?: number
+  build?: string
+}
+
+export interface FullHealth {
+  status: HeartbeatState
+  checked_at: string
+  uptime_seconds: number
+  heartbeat_interval_seconds: number
+  last_heartbeat_at: string | null
+  components: Record<string, HealthComponent>
+  safety: SafetyStatus
+  version: string
+  build: string
+}
+
+export interface SafetyEvent {
+  event_id: string
+  event_type: string
+  guardian: string | null
+  severity: string
+  message: string
+  details: Record<string, unknown>
+  occurred_at: string
+}
+
+export type DecimalString = string
+export type FeasibilityStatus = 'FEASIBLE' | 'INFEASIBLE' | 'UNAVAILABLE'
+export type FeasibilityRecommendation =
+  | 'PROCEED_TO_AUTHORITATIVE_TRADE_PLAN_FLOW'
+  | 'DO_NOT_FORCE_MINIMUM_LOT'
+  | 'RETRY_WITH_VALID_FRESH_DATA'
+
+export interface FeasibilityReason {
+  code: string
+  message: string
+}
+
+export interface FeasibilitySnapshotTimestamps {
+  captured_at: string
+  account_at: string
+  symbol_at: string
+  tick_at: string | null
+  fresh_until: string | null
+}
+
+export interface FeasibilityAccount {
+  currency: string
+  balance: DecimalString | null
+  equity: DecimalString | null
+  risk_base_type: 'EQUITY' | 'BALANCE'
+  risk_base_value: DecimalString | null
+  configured_risk_percent: DecimalString | null
+}
+
+export interface FeasibilityMarket {
+  entry_price: DecimalString | null
+  stop_loss_price: DecimalString | null
+  stop_distance: DecimalString | null
+  stop_distance_points: DecimalString | null
+  trade_tick_size: DecimalString | null
+  trade_tick_value: DecimalString | null
+  point: DecimalString | null
+}
+
+export interface FeasibilityVolume {
+  raw_lot: DecimalString | null
+  capped_lot: DecimalString | null
+  normalized_lot: DecimalString | null
+  volume_min: DecimalString | null
+  minimum_broker_lot: DecimalString | null
+  volume_max: DecimalString | null
+  volume_step: DecimalString | null
+}
+
+export interface FeasibilityCalculation {
+  risk_amount: DecimalString | null
+  ticks_at_risk: DecimalString | null
+  risk_per_lot: DecimalString | null
+  required_minimum_risk_base: DecimalString | null
+  required_minimum_risk_base_type: 'EQUITY' | 'BALANCE'
+  required_minimum_equity: DecimalString | null
+  required_minimum_equity_applicability: 'APPLICABLE' | 'HYPOTHETICAL_NOT_APPLICABLE'
+  maximum_stop_distance: DecimalString | null
+  maximum_stop_distance_points: DecimalString | null
+  boundary_stop_loss_price: DecimalString | null
+  minimum_lot_estimated_risk_amount: DecimalString | null
+  minimum_lot_estimated_risk_percent: DecimalString | null
+  minimum_lot_risk_delta_amount: DecimalString | null
+  minimum_lot_risk_delta_percent: DecimalString | null
+  minimum_lot_label: 'DIAGNOSTIC_ONLY'
+}
+
+export interface FeasibilityUnits {
+  currency: string
+  percent: string
+  volume: string
+  price: string
+  point: string
+  tick_derived: string
+}
+
+export interface RiskFeasibilityResult {
+  source_signal_id: string
+  symbol: string
+  direction: string
+  status: FeasibilityStatus
+  recommendation: FeasibilityRecommendation
+  analysis_timestamp: string
+  snapshot_timestamps: FeasibilitySnapshotTimestamps
+  account: FeasibilityAccount
+  market: FeasibilityMarket
+  volume: FeasibilityVolume
+  calculation: FeasibilityCalculation
+  reasons: FeasibilityReason[]
+  units: FeasibilityUnits
+  advisory: true
+  disclaimer: string
 }

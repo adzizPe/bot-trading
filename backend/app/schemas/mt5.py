@@ -1,4 +1,5 @@
-from typing import Literal
+from datetime import datetime
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -10,6 +11,14 @@ class MT5StatusResponse(BaseModel):
     configured: bool
     symbol: str
     last_error: str | None
+    connector_state: Literal[
+        "CONNECTED", "DISCONNECTED", "DEGRADED", "TIMEOUT", "RECOVERING", "FAILED"
+    ]
+    connector_generation: int
+    mutation_allowed: bool
+    reconciliation_required: bool
+    last_heartbeat_at: datetime | None
+    metrics: dict[str, Any]
 
 
 class MT5AccountResponse(BaseModel):

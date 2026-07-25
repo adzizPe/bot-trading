@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link2, Unlink } from 'lucide-react'
 import { useState } from 'react'
 import { api, sanitizeMessage } from '../api/client'
+import { usePermission } from '../auth/AuthProvider'
 import { ConfirmDialog, ErrorAlert, MetricCard, PageHeader, Panel, StatusBadge, money, number, useToast } from '../components/ui'
 
 const maskLogin = (value?: number) => {
@@ -13,6 +14,7 @@ const maskLogin = (value?: number) => {
 export function MT5Page() {
   const queryClient = useQueryClient()
   const { notify } = useToast()
+  const canConnect = usePermission('mt5:control')
   const [disconnect, setDisconnect] = useState(false)
   const status = useQuery({ queryKey: ['mt5-status'], queryFn: api.mt5Status, refetchInterval: 10000 })
   const enabled = status.data?.connected === true
@@ -26,7 +28,7 @@ export function MT5Page() {
   })
 
   return <div className="page-stack">
-    <PageHeader title="MT5 connection" description="Koneksi hanya menerima akun demo. Password dan secret tidak pernah dikirim atau ditampilkan frontend." actions={enabled ? <button className="button button-danger" onClick={() => setDisconnect(true)}><Unlink size={16} />Disconnect</button> : <button className="button button-primary" onClick={() => connection.mutate('connect')} disabled={connection.isPending}><Link2 size={16} />Connect demo</button>} />
+    <PageHeader title="MT5 connection" description="Koneksi hanya menerima akun demo. Password dan secret tidak pernah dikirim atau ditampilkan frontend." actions={canConnect && (enabled ? <button className="button button-danger" onClick={() => setDisconnect(true)}><Unlink size={16} />Disconnect</button> : <button className="button button-primary" onClick={() => connection.mutate('connect')} disabled={connection.isPending}><Link2 size={16} />Connect demo</button>)} />
     {status.data?.last_error && <ErrorAlert message={sanitizeMessage(status.data.last_error)} />}
     <div className="metric-grid">
       <MetricCard label="Connection" value={<StatusBadge value={enabled ? 'connected' : status.data?.state || 'disconnected'} />} />

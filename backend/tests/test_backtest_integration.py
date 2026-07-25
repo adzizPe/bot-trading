@@ -5,7 +5,6 @@ import time
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -20,6 +19,7 @@ from app.main import create_app
 from app.mt5.client import MetaTrader5Client
 from app.mt5.manager import MT5ConnectionManager
 from tests.test_backtest_engine import ReadOnlyManager, request
+from tests.auth_helpers import authenticated_client
 from tests.test_mt5_manager import make_settings
 
 START = datetime(2026, 1, 5, tzinfo=timezone.utc)
@@ -44,9 +44,11 @@ async def test_csv_run_is_deterministic_and_never_writes_live_tables(
     service = BacktestEngine(
         repository, ReadOnlyManager(), make_settings()  # type: ignore[arg-type]
     )
-    configuration = request("CSV", str(path))
+    configuration = request("CSV")
     reports: list[dict[str, Any]] = []
     for _ in range(2):
+        upload = await service.upload_store.stage_path(path)
+        configuration = request("CSV", upload["upload_id"])
         job = await repository.create(configuration)
         await service.run(job["backtest_id"], configuration)
         detail = await repository.get(job["backtest_id"])
@@ -90,7 +92,7 @@ def test_backtest_api_with_demo_historical_data_is_read_only() -> None:
             )  # type: ignore[return-value]
 
     manager = MT5ConnectionManager(MetaTrader5Client(), settings)
-    with TestClient(create_app(settings, manager)) as api:
+    with authenticated_client(create_app(settings, manager)) as api:
         connected = False
         try:
             response = api.post("/api/v1/mt5/connect")
@@ -151,7 +153,9 @@ def test_backtest_api_with_demo_historical_data_is_read_only() -> None:
             assert "Past performance" in report.json()["report"]["disclaimer"]
             assert exported.text.startswith("trade_id,direction,entry_time,exit_time,")
             assert before == live_counts()
-            assert "/api/v1/backtests" in api.get("/openapi.json").json()["paths"]
+            assert "/api/v1/backtests" in api.app.openapi()[  # type: ignore[attr-defined]
+                "paths"
+            ]
             assert manager.order_send_calls == 0
         finally:
             if connected:

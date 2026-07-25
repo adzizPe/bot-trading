@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\backtest\report.py
+# hypothesis_version: 6.151.9
+
+[0.0, 100, 'breakeven_count', 'closed_at', 'config_summary', 'disclaimer', 'drawdown', 'drawdown_curve', 'drawdown_percent', 'entry_reasons', 'equity', 'equity_curve', 'isoformat', 'losses', 'metadata', 'net_pnl', 'performance', 'pl_distribution', 'profits', 'rejection_reasons', 'risk_amount', 'risk_per_trade', 'statistics', 'timestamp', 'trade_id', 'trades', 'warnings']

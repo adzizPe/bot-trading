@@ -5,4 +5,6 @@ pydantic-settings==2.14.2
 SQLAlchemy[asyncio]==2.0.51
 aiosqlite==0.22.1
 alembic==1.18.5
+python-multipart==0.0.32
 MetaTrader5==5.0.5735
+tzdata==2025.2

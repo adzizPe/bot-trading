@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\backtest\risk.py
+# hypothesis_version: 6.151.9
+
+['0', '10000', '; ', 'XAUUSD', 'balance', 'closed_at', 'consecutive_losses', 'cooldown_until', 'decision_time', 'direction', 'equity', 'floating_drawdown', 'lot_size', 'net_pnl', 'open_positions', 'peak_equity', 'plan', 'realized_loss', 'risk_amount', 'signal_id', 'starting_balance', 'stop_distance', 'stop_loss', 'stop_reference_price', 'symbol', 'take_profit', 'target_price', 'trade_plan_id', 'trades_count', 'value', 'volume']

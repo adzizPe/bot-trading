@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Play, RefreshCw } from 'lucide-react'
 import { api, sanitizeMessage } from '../api/client'
 import type { Indicator, Signal } from '../api/types'
+import { usePermission } from '../auth/AuthProvider'
 import { ErrorAlert, LoadingSkeleton, MetricCard, PageHeader, Panel, ReasonList, SignalCard, StatusBadge, number, useToast } from '../components/ui'
 
 function IndicatorCard({ title, value }: { title: string; value: Indicator }) {
@@ -20,6 +21,7 @@ function IndicatorCard({ title, value }: { title: string; value: Indicator }) {
 export function AnalysisPage() {
   const queryClient = useQueryClient()
   const { notify } = useToast()
+  const canGenerate = usePermission('analysis:generate')
   const analysis = useQuery({ queryKey: ['analysis'], queryFn: api.analysis, retry: 1 })
   const latest = useQuery({ queryKey: ['latest-signal'], queryFn: api.latestSignal, retry: false })
   const generate = useMutation({
@@ -35,7 +37,7 @@ export function AnalysisPage() {
   return <div className="page-stack">
     <PageHeader title="Multi-timeframe analysis" description="EMA, RSI, ATR, structure, support/resistance, dan confirmation dari H1/M15/M5." actions={<div className="page-actions">
       <button className="button button-ghost" onClick={() => analysis.refetch()} disabled={analysis.isFetching}><RefreshCw size={16} />Refresh</button>
-      <button className="button button-primary" onClick={() => generate.mutate()} disabled={generate.isPending}><Play size={16} />{generate.isPending ? 'Generating…' : 'Generate signal'}</button>
+      {canGenerate && <button className="button button-primary" onClick={() => generate.mutate()} disabled={generate.isPending}><Play size={16} />{generate.isPending ? 'Generating…' : 'Generate signal'}</button>}
     </div>} />
     {analysis.isLoading && <LoadingSkeleton rows={4} />}
     {analysis.error && <ErrorAlert message={sanitizeMessage(analysis.error)} retry={() => analysis.refetch()} />}

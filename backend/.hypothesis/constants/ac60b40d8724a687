@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\api\routes\paper.py
+# hypothesis_version: 6.151.9
+
+[100, 200, 409, 422, 1000, 10000, '/account', '/account/reset', '/emergency-stop', '/equity-curve', '/open', '/paper', '/pause', '/positions', '/settings', '/start', '/statistics', '/status', '/stop', '/trades', 'CLOSED', 'EMERGENCY_STOPPED', 'OPEN', 'PAUSED', 'STOPPED', 'paper-trading', 'status']

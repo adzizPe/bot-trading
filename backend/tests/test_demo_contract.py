@@ -29,15 +29,10 @@ from app.demo.validator import DemoIntentValidator, OrderRequestValidator
 from app.schemas.demo import DemoEmergencyStopRequest, DemoExecuteRequest
 
 
-def test_demo_configuration_is_fail_closed_and_secret() -> None:
+def test_demo_configuration_is_fail_closed() -> None:
     settings = Settings(_env_file=None)
     assert settings.demo_execution_enabled is False
-    assert settings.demo_admin_token is None
     assert settings.demo_emergency_close_positions is False
-    with pytest.raises(ValidationError):
-        Settings(_env_file=None, demo_admin_token="short")
-    configured = Settings(_env_file=None, demo_admin_token="a-secure-admin-key")
-    assert "a-secure-admin-key" not in repr(configured.demo_admin_token)
 
 
 def test_demo_requests_are_strict_and_execute_boundary_is_minimal() -> None:
@@ -195,7 +190,7 @@ def test_exact_demo_endpoint_contract_is_registered() -> None:
 def test_engine_exposes_all_contract_statuses_and_manual_mode_only() -> None:
     assert DemoStateMachine.STATUSES == {
         "STOPPED", "STARTING", "RUNNING", "PAUSED", "RISK_LOCKED",
-        "CONNECTION_LOST", "ERROR", "EMERGENCY_STOPPED",
+        "CONNECTION_LOST", "ERROR", "EMERGENCY_STOP",
     }
     assert Settings(_env_file=None).demo_execution_mode == "MANUAL_DEMO"
 
@@ -248,13 +243,12 @@ def test_non_candidate_signal_is_rejected_before_send() -> None:
 
 
 @pytest.mark.asyncio
-async def test_emergency_stop_honors_persisted_close_setting() -> None:
+async def test_emergency_stop_is_hard_lock_and_never_sends_close_orders() -> None:
     class Repository:
-        async def get_or_create_settings(self, defaults: dict[str, object]) -> dict[str, object]:
-            return {**defaults, "settings_id": "default", "emergency_close_positions": True}
-
-        async def set_engine_state(self, status: str) -> dict[str, object]:
-            return {"engine_id": "default", "status": status}
+        async def set_engine_state(
+            self, status: str, error: str | None = None,
+        ) -> dict[str, object]:
+            return {"engine_id": "default", "status": status, "last_error": error}
 
         async def add_event(self, *args: object, **kwargs: object) -> None:
             return None
@@ -273,7 +267,8 @@ async def test_emergency_stop_honors_persisted_close_setting() -> None:
     service._repository = Repository()  # type: ignore[attr-defined]
     executor = Executor()
     service._executor = executor  # type: ignore[attr-defined]
-    result = await service.emergency_stop(False)
-    assert executor.called is True
-    assert result["close_positions_requested"] is False
-    assert result["close_positions_effective"] is True
+    result = await service.emergency_stop(True)
+    assert executor.called is False
+    assert result["engine"]["status"] == "EMERGENCY_STOP"
+    assert result["close_positions_requested"] is True
+    assert result["close_positions_effective"] is False

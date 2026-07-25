@@ -1,10 +1,10 @@
 import pytest
-from fastapi.testclient import TestClient
 
 from app.config.settings import get_settings
 from app.main import create_app
 from app.mt5.client import MetaTrader5Client
 from app.mt5.manager import MT5ConnectionManager
+from tests.auth_helpers import authenticated_client
 
 
 @pytest.mark.integration
@@ -13,7 +13,7 @@ def test_risk_api_with_demo_account() -> None:
     if not (settings.mt5_login and settings.mt5_password and settings.mt5_server):
         pytest.skip("MT5 demo credentials are not configured")
     manager = MT5ConnectionManager(MetaTrader5Client(), settings)
-    with TestClient(create_app(settings, manager)) as api:
+    with authenticated_client(create_app(settings, manager)) as api:
         connected = api.post("/api/v1/mt5/connect")
         assert connected.status_code == 200
         assert connected.json()["demo_verified"] is True

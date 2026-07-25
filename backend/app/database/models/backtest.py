@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
-    Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text,
+    Boolean, DateTime, Float, ForeignKey, Index, Integer, JSON, String, Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -17,6 +17,9 @@ class DictModel:
 
 class Backtest(Base, DictModel):
     __tablename__ = "backtests"
+    __table_args__ = (
+        Index("ix_backtests_status_created_at", "status", "created_at"),
+    )
 
     backtest_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     symbol: Mapped[str] = mapped_column(String(32), nullable=False, index=True)

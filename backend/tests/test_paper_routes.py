@@ -1,10 +1,10 @@
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi.testclient import TestClient
 
 from app.main import create_app
 from app.mt5.manager import MT5ConnectionManager
+from tests.auth_helpers import authenticated_client
 from tests.fakes import FakeMT5Client
 from tests.test_mt5_manager import make_settings
 
@@ -138,7 +138,7 @@ def test_paper_endpoints_and_openapi_contract() -> None:
     app.state.paper_account_service = FakeAccounts()
     app.state.paper_position_service = FakePositions()
     app.state.paper_statistics_service = FakeStatistics()
-    with TestClient(app) as api:
+    with authenticated_client(app) as api:
         assert api.get("/api/v1/paper/status").json()["status"] == "STOPPED"
         assert api.get("/api/v1/paper/settings").status_code == 200
         assert api.put("/api/v1/paper/settings", json={"initial_balance": 9000}).status_code == 200
@@ -156,6 +156,6 @@ def test_paper_endpoints_and_openapi_contract() -> None:
         assert api.post("/api/v1/paper/pause").json()["status"] == "PAUSED"
         assert api.post("/api/v1/paper/stop").json()["status"] == "STOPPED"
         assert api.post("/api/v1/paper/emergency-stop").status_code == 200
-        paths = api.get("/openapi.json").json()["paths"]
+        paths = app.openapi()["paths"]
         assert "/api/v1/paper/open" in paths
         assert "/api/v1/paper/emergency-stop" in paths

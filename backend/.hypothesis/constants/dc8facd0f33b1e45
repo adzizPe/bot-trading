@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\api\routes\health.py
+# hypothesis_version: 6.151.9
+
+['/health', '/health/full', 'DEGRADED', 'HEALTHY', 'backtest', 'build', 'connected', 'frontend', 'health', 'healthy', 'market', 'paper', 'risk', 'status', 'vite']

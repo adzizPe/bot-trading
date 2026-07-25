@@ -9,6 +9,13 @@ from app.demo.check import OrderCheckService
 from app.demo.types import normalize_price, normalize_volume
 
 from app.config.settings import Settings
+from app.mt5.connector import (
+    ConnectorCallError,
+    ConnectorState,
+    ConnectorTimeoutError,
+    MT5ConnectorProtocol,
+    connector_for,
+)
 from app.mt5.exceptions import (
     MT5ConfigurationError,
     MT5ConnectionError,
@@ -34,9 +41,15 @@ class MT5ConnectionState(str, Enum):
 class MT5ConnectionManager:
     """Serializes demo-guarded access to the process-global MT5 API."""
 
-    def __init__(self, client: MT5ClientProtocol, settings: Settings) -> None:
+    def __init__(
+        self,
+        client: MT5ClientProtocol,
+        settings: Settings,
+        connector: MT5ConnectorProtocol | None = None,
+    ) -> None:
         self._client = client
         self._settings = settings
+        self._connector = connector or connector_for(client)
         self._lock = asyncio.Lock()
         self._state = MT5ConnectionState.DISCONNECTED
         self._connected = False
@@ -44,7 +57,21 @@ class MT5ConnectionManager:
         self._last_error: str | None = None
         self._resolved_symbol: str | None = None
         self._connection_version = 0
+        self._order_check_calls = 0
         self._order_send_calls = 0
+        self._pre_send_guard: Callable[[], None] | None = None
+        self._mutation_quarantined = False
+        self._reconciliation_required = False
+        self._recovery_task: asyncio.Task[None] | None = None
+        self._heartbeat_task: asyncio.Task[None] | None = None
+        self._last_heartbeat_at: datetime | None = None
+
+    def set_pre_send_guard(self, guard: Callable[[], None] | None) -> None:
+        self._pre_send_guard = guard
+
+    @property
+    def order_check_calls(self) -> int:
+        return self._order_check_calls
 
     @property
     def order_send_calls(self) -> int:
@@ -55,6 +82,9 @@ class MT5ConnectionManager:
         return self._connection_version
 
     def status(self) -> dict[str, Any]:
+        connector_state = self._connector.state
+        if self._mutation_quarantined and connector_state == ConnectorState.CONNECTED:
+            connector_state = ConnectorState.DEGRADED
         return {
             "state": self._state.value,
             "connected": self._connected,
@@ -62,6 +92,16 @@ class MT5ConnectionManager:
             "configured": not self._missing_configuration(),
             "symbol": self._resolved_symbol or self._settings.mt5_symbol,
             "last_error": self._last_error,
+            "connector_state": connector_state.value,
+            "connector_generation": self._connector.generation,
+            "mutation_allowed": bool(
+                self._connected
+                and self._demo_verified
+                and not self._mutation_quarantined
+            ),
+            "reconciliation_required": self._reconciliation_required,
+            "last_heartbeat_at": self._last_heartbeat_at,
+            "metrics": self._connector.metrics(),
         }
 
     async def connect(self) -> dict[str, Any]:
@@ -80,24 +120,30 @@ class MT5ConnectionManager:
             path = str(self._settings.mt5_path) if self._settings.mt5_path else None
             for attempt in range(1, self._settings.mt5_connect_retries + 1):
                 try:
-                    initialized = await asyncio.to_thread(
-                        self._client.initialize,
+                    initialized = await self._connector.call(
+                        "initialize",
                         path,
                         login=self._settings.mt5_login,
                         password=password,
                         server=self._settings.mt5_server,
                         timeout=self._settings.mt5_timeout_ms,
+                        timeout_seconds=self._settings.mt5_timeout_ms / 1000,
                     )
-                except Exception as exc:  # vendor extension can raise non-domain errors
+                except (ConnectorCallError, ConnectorTimeoutError) as exc:
                     initialized = False
                     self._last_error = self._sanitize(str(exc))
 
                 if initialized:
                     try:
-                        account = await asyncio.to_thread(self._client.account_info)
-                    except Exception as exc:
+                        account = await self._connector.call(
+                            "account_info",
+                            timeout_seconds=self._settings.mt5_vendor_timeout_ms / 1000,
+                        )
+                    except (ConnectorCallError, ConnectorTimeoutError) as exc:
                         account = None
-                        self._last_error = self._sanitize(f"MT5 account check failed: {exc}")
+                        self._last_error = self._sanitize(
+                            f"MT5 account check failed: {exc}"
+                        )
                     if account is not None:
                         await self._ensure_demo(account)
                         self._connected = True
@@ -105,6 +151,9 @@ class MT5ConnectionManager:
                         self._state = MT5ConnectionState.CONNECTED
                         self._last_error = None
                         self._connection_version += 1
+                        if not self._reconciliation_required:
+                            self._mutation_quarantined = False
+                        self._connector.mark_connected()
                         logger.info("MT5 demo connection established")
                         return self.status()
                     self._last_error = "MT5 account information is unavailable"
@@ -114,22 +163,36 @@ class MT5ConnectionManager:
                 logger.warning("MT5 connection attempt %s/%s failed: %s", attempt, self._settings.mt5_connect_retries, self._last_error)
                 await self._safe_shutdown()
                 if attempt < self._settings.mt5_connect_retries:
+                    self._connector.record_retry()
                     await asyncio.sleep(self._settings.mt5_retry_delay_seconds)
 
             self._state = MT5ConnectionState.CONNECTION_ERROR
+            self._connector.mark_failed()
             raise MT5ConnectionError(self._last_error or "MT5 connection failed")
 
     async def disconnect(self) -> dict[str, Any]:
         async with self._lock:
             was_active = self._connected or self._state != MT5ConnectionState.DISCONNECTED
+            if self._heartbeat_task is not None and not self._heartbeat_task.done():
+                self._heartbeat_task.cancel()
+                try:
+                    await self._heartbeat_task
+                except asyncio.CancelledError:
+                    pass
+            self._heartbeat_task = None
+            if self._recovery_task is not None and not self._recovery_task.done():
+                self._recovery_task.cancel()
             if self._connected or self._state == MT5ConnectionState.CONNECTING:
                 await self._safe_shutdown()
                 logger.info("MT5 connection closed")
+            await self._connector.stop()
             self._connected = False
             self._demo_verified = False
             self._resolved_symbol = None
             self._state = MT5ConnectionState.DISCONNECTED
             self._last_error = None
+            self._mutation_quarantined = False
+            self._reconciliation_required = False
             if was_active:
                 self._connection_version += 1
             return self.status()
@@ -138,6 +201,52 @@ class MT5ConnectionManager:
         async with self._lock:
             self._require_connected()
             await self._active_demo_account()
+
+    async def start_connector(self) -> None:
+        if self._heartbeat_task is None or self._heartbeat_task.done():
+            self._heartbeat_task = asyncio.create_task(
+                self._heartbeat_loop(), name="mt5-connector-heartbeat"
+            )
+
+    async def _heartbeat_loop(self) -> None:
+        while True:
+            try:
+                await asyncio.sleep(self._settings.mt5_heartbeat_interval_seconds)
+                if self._state != MT5ConnectionState.DISCONNECTED:
+                    await self.heartbeat()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self._connector.mark_degraded()
+
+    async def heartbeat(self) -> bool:
+        """Bounded native liveness probe; status reads remain non-blocking."""
+        async with self._lock:
+            if not self._connected or not self._demo_verified:
+                if self._state == MT5ConnectionState.DISCONNECTED:
+                    return False
+                if not await self._recover_locked():
+                    return False
+            try:
+                terminal = await self._connector.call(
+                    "terminal_info",
+                    timeout_seconds=self._settings.mt5_heartbeat_timeout_ms / 1000,
+                )
+            except (ConnectorCallError, ConnectorTimeoutError):
+                self._enter_quarantine("terminal_info", ambiguous=False)
+                self._schedule_recovery()
+                return False
+            healthy = bool(
+                terminal is not None and self._value(terminal, "connected", False)
+            )
+            self._last_heartbeat_at = datetime.now(timezone.utc)
+            if not healthy:
+                self._connector.mark_degraded()
+                self._last_error = "MT5 heartbeat failed"
+                return False
+            if not self._mutation_quarantined:
+                self._connector.mark_connected()
+            return True
 
     async def market_tick(
         self, requested_symbol: str | None = None
@@ -189,6 +298,77 @@ class MT5ConnectionManager:
                     "time": self._value(tick, "time"),
                     "time_msc": self._value(tick, "time_msc"),
                 },
+            }
+
+    async def market_order_readiness(
+        self, requested_symbol: str | None = None,
+        maximum_spread_points: float = 300.0,
+    ) -> dict[str, Any]:
+        """Inspect all pre-order-check guards without invoking order_check/send."""
+        async with self._lock:
+            self._require_connected()
+            await self._active_demo_account()
+            terminal = await self._vendor_call(
+                self._client.terminal_info,
+                error_message="MT5 terminal information failed",
+            )
+            symbol, info = await self._resolve_symbol(requested_symbol)
+            tick = await self._vendor_call(
+                self._client.symbol_info_tick, symbol,
+                error_message="MT5 tick request failed",
+            )
+            terminal_connected = bool(
+                terminal is not None and self._value(terminal, "connected", False)
+            )
+            terminal_trade_allowed = bool(
+                terminal is not None and self._value(terminal, "trade_allowed", False)
+            )
+            terminal_api_disabled = bool(
+                terminal is not None and self._value(terminal, "tradeapi_disabled", False)
+            )
+            symbol_trade_allowed = self._client.symbol_trading_allowed(
+                int(self._value(info, "trade_mode", 0))
+            )
+            point = float(self._value(info, "point", 0) or 0)
+            bid = float(self._value(tick, "bid", 0) or 0) if tick else 0.0
+            ask = float(self._value(tick, "ask", 0) or 0) if tick else 0.0
+            quote_valid = point > 0 and bid > 0 and ask >= bid
+            timestamp_msc = float(self._value(tick, "time_msc", 0) or 0) if tick else 0
+            timestamp = float(self._value(tick, "time", 0) or 0) if tick else 0
+            tick_seconds = timestamp_msc / 1000 if timestamp_msc else timestamp
+            quote_age_seconds = (
+                max(0.0, datetime.now(timezone.utc).timestamp() - tick_seconds)
+                if tick_seconds else None
+            )
+            quote_fresh = quote_age_seconds is not None and quote_age_seconds <= 60
+            spread_points = (ask - bid) / point if quote_valid else None
+            spread_allowed = (
+                spread_points is not None
+                and math.isfinite(spread_points)
+                and spread_points <= maximum_spread_points
+            )
+            market_open = all((
+                terminal_connected, terminal_trade_allowed,
+                not terminal_api_disabled, symbol_trade_allowed,
+                quote_valid, quote_fresh,
+            ))
+            return {
+                "terminal_connected": terminal_connected,
+                "terminal_trade_allowed": terminal_trade_allowed,
+                "terminal_api_disabled": terminal_api_disabled,
+                "symbol": symbol,
+                "symbol_trade_allowed": symbol_trade_allowed,
+                "market_open": market_open,
+                "bid": bid, "ask": ask,
+                "spread_points": spread_points,
+                "spread_allowed": spread_allowed,
+                "quote_age_seconds": quote_age_seconds,
+                "order_check_ready": bool(
+                    self._settings.demo_execution_enabled
+                    and market_open and spread_allowed
+                ),
+                "order_check_calls": self._order_check_calls,
+                "order_send_calls": self._order_send_calls,
             }
 
     async def market_rates(
@@ -281,131 +461,212 @@ class MT5ConnectionManager:
                     return {field: self._value(info, field, symbol if field == "name" else None) for field in fields}
             raise MT5SymbolNotFound("No supported XAU/USD symbol was found")
 
-    async def execute_market_order(
+    async def check_market_order(
         self, *, symbol: str, direction: str, volume: float, stop_loss: float,
         take_profit: float, magic: int, comment: str, deviation: int,
         maximum_spread_points: float = 300.0,
         position_ticket: int | None = None,
         risk_percent: float | None = None,
     ) -> dict[str, Any]:
-        """Check and send once (or one explicit price retry) under the connection lock."""
+        """Run all demo guards and broker order_check without calling order_send."""
         async with self._lock:
-            if not self._settings.demo_execution_enabled:
-                raise MT5ConfigurationError("Demo trading is disabled")
-            if direction not in {"BUY", "SELL"}:
-                raise MT5TradeValidationError("Direction must be BUY or SELL")
-            if magic <= 0:
-                raise MT5TradeValidationError("Magic must be greater than zero")
-            if not 1 <= len(comment) <= 31:
-                raise MT5TradeValidationError("Comment must contain 1 to 31 characters")
-            if deviation < 0 or deviation > 1000:
-                raise MT5TradeValidationError("Deviation must be between 0 and 1000 points")
-            self._require_connected()
-            account = await self._active_demo_account()
-            await self._ensure_trade_permissions(account)
-            if position_ticket is not None:
-                position = await self._owned_position(position_ticket, magic)
-                broker_symbol = str(self._value(position, "symbol", ""))
-                if not broker_symbol:
-                    raise MT5TradeValidationError("Broker position symbol is unavailable")
-                actual_symbol, info = await self._resolve_symbol(broker_symbol)
-                actual_direction = self._client.position_direction(
-                    int(self._value(position, "type", -1))
-                )
-                if actual_direction != direction:
-                    raise MT5TradeValidationError("Local and broker position directions differ")
-                direction = "SELL" if direction == "BUY" else "BUY"
-                volume = float(self._value(position, "volume", 0))
-            else:
-                actual_symbol, info = await self._resolve_symbol(symbol)
-            if risk_percent is None or position_ticket is not None:
-                prepared_volume = normalize_volume(
-                    volume, self._value(info, "volume_min"),
-                    self._value(info, "volume_max"), self._value(info, "volume_step"),
-                )
-            else:
-                prepared_volume = volume
-            tick_size = self._value(info, "trade_tick_size") or self._value(info, "point")
-            digits = int(self._value(info, "digits", 0))
-            prepared_stop = (
-                0.0 if position_ticket is not None
-                else normalize_price(stop_loss, tick_size, digits)
+            self._validate_market_order_inputs(
+                direction, magic, comment, deviation, maximum_send_attempts=1
             )
-            prepared_target = (
-                0.0 if position_ticket is not None
-                else normalize_price(take_profit, tick_size, digits)
+            checked = await self._checked_market_order(
+                symbol=symbol, direction=direction, volume=volume,
+                stop_loss=stop_loss, take_profit=take_profit, magic=magic,
+                comment=comment, deviation=deviation,
+                maximum_spread_points=maximum_spread_points,
+                position_ticket=position_ticket, risk_percent=risk_percent,
             )
-            filling = self._client.filling_mode_from_symbol(
-                int(self._value(info, "filling_mode", 0))
+            return {
+                key: value for key, value in checked.items() if key != "request"
+            }
+
+    async def execute_market_order(
+        self, *, symbol: str, direction: str, volume: float, stop_loss: float,
+        take_profit: float, magic: int, comment: str, deviation: int,
+        maximum_spread_points: float = 300.0,
+        position_ticket: int | None = None,
+        risk_percent: float | None = None,
+        maximum_send_attempts: int = 2,
+    ) -> dict[str, Any]:
+        """Check then send under one lock, with at most one explicit price retry."""
+        async with self._lock:
+            self._validate_market_order_inputs(
+                direction, magic, comment, deviation, maximum_send_attempts
             )
             last_request: dict[str, object] = {}
-            for attempt in range(2):
-                guarded_account, info, tick = await self._execution_guard(
-                    actual_symbol, maximum_spread_points
+            last_symbol = symbol
+            for attempt in range(maximum_send_attempts):
+                checked = await self._checked_market_order(
+                    symbol=symbol, direction=direction, volume=volume,
+                    stop_loss=stop_loss, take_profit=take_profit, magic=magic,
+                    comment=comment, deviation=deviation,
+                    maximum_spread_points=maximum_spread_points,
+                    position_ticket=position_ticket, risk_percent=risk_percent,
                 )
-                tick_size = self._value(info, "trade_tick_size") or self._value(info, "point")
-                digits = int(self._value(info, "digits", 0))
-                price = float(self._value(tick, "ask" if direction == "BUY" else "bid", 0))
-                prepared_price = normalize_price(price, tick_size, digits)
-                if risk_percent is not None and position_ticket is None:
-                    prepared_volume = self._risk_volume(
-                        guarded_account, info, prepared_price, prepared_stop, risk_percent
-                    )
-                self._validate_geometry(
-                    direction, prepared_price, prepared_stop, prepared_target, info,
-                    closing=position_ticket is not None,
-                )
-                last_request = {
-                    "action": self._client.trade_action_deal, "symbol": actual_symbol,
-                    "volume": prepared_volume, "type": self._client.order_type(direction),
-                    "price": prepared_price, "sl": prepared_stop, "tp": prepared_target,
-                    "deviation": deviation, "magic": magic, "comment": comment,
-                    "type_filling": filling,
-                }
-                if position_ticket is not None:
-                    last_request["position"] = position_ticket
-                else:
-                    margin = await self._vendor_call(
-                        self._client.order_calc_margin,
-                        self._client.order_type(direction), actual_symbol,
-                        prepared_volume, prepared_price,
-                        error_message="MT5 margin calculation failed",
-                    )
-                    self._validate_margin(margin, guarded_account)
-                await self._execution_guard(actual_symbol, maximum_spread_points)
-                check = await self._vendor_call(
-                    self._client.order_check, last_request,
-                    error_message="MT5 order check failed",
-                )
-                if check is None or not self._client.trade_check_accepted(
-                    int(self._value(check, "retcode", -1))
-                ):
-                    raise MT5TradeValidationError("Broker order_check rejected the request")
-                if position_ticket is None:
-                    check_margin = self._value(check, "margin")
-                    if margin is None and check_margin is None:
-                        raise MT5TradeValidationError(
-                            "Broker provided no margin validation"
-                        )
-                    self._validate_margin(check_margin, guarded_account)
-                await self._execution_guard(actual_symbol, maximum_spread_points)
-                result = await self._send_unknown_safe(last_request, actual_symbol)
-                if result["outcome"] != "RETRYABLE" or attempt == 1:
+                last_request = checked["request"]
+                last_symbol = str(checked["symbol"])
+                await self._execution_guard(last_symbol, maximum_spread_points)
+                result = await self._send_unknown_safe(last_request, last_symbol)
+                if result["outcome"] != "RETRYABLE" or attempt == maximum_send_attempts - 1:
                     if result["outcome"] == "RETRYABLE":
                         result["outcome"] = "REJECTED"
                         result["reconciliation_required"] = False
                     result["attempts"] = attempt + 1
-                    result["sanitized_request"] = self._sanitized_trade_request(
-                        last_request
-                    )
+                    result["sanitized_request"] = checked["sanitized_request"]
+                    result["order_check"] = checked["order_check"]
+                    result["margin_required"] = checked["margin_required"]
                     return result
-            return self._unknown_result(last_request, actual_symbol)
+            return self._unknown_result(last_request, last_symbol)
+
+    def _validate_market_order_inputs(
+        self, direction: str, magic: int, comment: str, deviation: int,
+        maximum_send_attempts: int,
+    ) -> None:
+        if self._mutation_quarantined:
+            raise MT5ConnectionError(
+                "MT5 broker mutations are quarantined pending reconciliation"
+            )
+        if not self._settings.demo_execution_enabled:
+            raise MT5ConfigurationError("Demo trading is disabled")
+        if direction not in {"BUY", "SELL"}:
+            raise MT5TradeValidationError("Direction must be BUY or SELL")
+        if magic <= 0:
+            raise MT5TradeValidationError("Magic must be greater than zero")
+        if not 1 <= len(comment) <= 31:
+            raise MT5TradeValidationError("Comment must contain 1 to 31 characters")
+        if deviation < 0 or deviation > 1000:
+            raise MT5TradeValidationError("Deviation must be between 0 and 1000 points")
+        if maximum_send_attempts not in {1, 2}:
+            raise MT5TradeValidationError("Maximum send attempts must be one or two")
+
+    async def _checked_market_order(
+        self, *, symbol: str, direction: str, volume: float, stop_loss: float,
+        take_profit: float, magic: int, comment: str, deviation: int,
+        maximum_spread_points: float, position_ticket: int | None,
+        risk_percent: float | None,
+    ) -> dict[str, Any]:
+        self._require_connected()
+        account = await self._active_demo_account()
+        await self._ensure_trade_permissions(account)
+        requested_direction = direction
+        if position_ticket is not None:
+            position = await self._owned_position(position_ticket, magic)
+            broker_symbol = str(self._value(position, "symbol", ""))
+            if not broker_symbol:
+                raise MT5TradeValidationError("Broker position symbol is unavailable")
+            actual_symbol, info = await self._resolve_symbol(broker_symbol)
+            actual_direction = self._client.position_direction(
+                int(self._value(position, "type", -1))
+            )
+            if actual_direction != requested_direction:
+                raise MT5TradeValidationError("Local and broker position directions differ")
+            direction = "SELL" if requested_direction == "BUY" else "BUY"
+            volume = float(self._value(position, "volume", 0))
+        else:
+            actual_symbol, info = await self._resolve_symbol(symbol)
+        prepared_volume = volume
+        if risk_percent is None or position_ticket is not None:
+            prepared_volume = normalize_volume(
+                volume, self._value(info, "volume_min"),
+                self._value(info, "volume_max"), self._value(info, "volume_step"),
+            )
+        tick_size = self._value(info, "trade_tick_size") or self._value(info, "point")
+        digits = int(self._value(info, "digits", 0))
+        prepared_stop = 0.0 if position_ticket is not None else normalize_price(
+            stop_loss, tick_size, digits
+        )
+        prepared_target = 0.0 if position_ticket is not None else normalize_price(
+            take_profit, tick_size, digits
+        )
+        filling = self._client.filling_mode_from_symbol(
+            int(self._value(info, "filling_mode", 0))
+        )
+        guarded_account, info, tick = await self._execution_guard(
+            actual_symbol, maximum_spread_points
+        )
+        tick_size = self._value(info, "trade_tick_size") or self._value(info, "point")
+        digits = int(self._value(info, "digits", 0))
+        price = float(self._value(tick, "ask" if direction == "BUY" else "bid", 0))
+        prepared_price = normalize_price(price, tick_size, digits)
+        if risk_percent is not None and position_ticket is None:
+            prepared_volume = self._risk_volume(
+                guarded_account, info, prepared_price, prepared_stop, risk_percent
+            )
+        self._validate_geometry(
+            direction, prepared_price, prepared_stop, prepared_target, info,
+            closing=position_ticket is not None,
+        )
+        request: dict[str, object] = {
+            "action": self._client.trade_action_deal, "symbol": actual_symbol,
+            "volume": prepared_volume, "type": self._client.order_type(direction),
+            "price": prepared_price, "sl": prepared_stop, "tp": prepared_target,
+            "deviation": deviation, "magic": magic, "comment": comment,
+            "type_filling": filling,
+        }
+        margin = None
+        if position_ticket is not None:
+            request["position"] = position_ticket
+        else:
+            margin = await self._vendor_call(
+                self._client.order_calc_margin,
+                self._client.order_type(direction), actual_symbol,
+                prepared_volume, prepared_price,
+                error_message="MT5 margin calculation failed",
+            )
+            self._validate_margin(margin, guarded_account)
+        await self._execution_guard(actual_symbol, maximum_spread_points)
+        self._order_check_calls += 1
+        check = await self._vendor_call(
+            self._client.order_check, request,
+            error_message="MT5 order check failed",
+        )
+        check_retcode = int(self._value(check, "retcode", -1)) if check else -1
+        if check is None or not self._client.trade_check_accepted(check_retcode):
+            raise MT5TradeValidationError("Broker order_check rejected the request")
+        check_margin = self._value(check, "margin")
+        if position_ticket is None:
+            if margin is None and check_margin is None:
+                raise MT5TradeValidationError("Broker provided no margin validation")
+            self._validate_margin(check_margin, guarded_account)
+        point = float(self._value(info, "point", 0) or 0)
+        bid = float(self._value(tick, "bid", 0) or 0)
+        ask = float(self._value(tick, "ask", 0) or 0)
+        required_margin = check_margin if check_margin is not None else margin
+        return {
+            "request": request,
+            "sanitized_request": self._sanitized_trade_request(request),
+            "order_check": {
+                "retcode": check_retcode,
+                "retcode_name": OrderCheckService.retcode_name(check_retcode),
+                "margin": self._finite_or_none(check_margin),
+            },
+            "margin_required": self._finite_or_none(required_margin),
+            "margin_free": self._finite_or_none(self._value(guarded_account, "margin_free")),
+            "symbol": actual_symbol,
+            "direction": direction,
+            "bid": bid,
+            "ask": ask,
+            "spread_points": (ask - bid) / point,
+            "volume_min": self._finite_or_none(self._value(info, "volume_min")),
+            "volume_step": self._finite_or_none(self._value(info, "volume_step")),
+            "stops_level": self._finite_or_none(self._value(info, "trade_stops_level")),
+            "freeze_level": self._finite_or_none(self._value(info, "trade_freeze_level")),
+            "market_open": True,
+        }
 
     async def modify_position_stop(
         self, *, position_ticket: int, stop_loss: float, magic: int,
         comment: str, maximum_spread_points: float = 300.0,
     ) -> dict[str, Any]:
         async with self._lock:
+            if self._mutation_quarantined:
+                raise MT5ConnectionError(
+                    "MT5 broker mutations are quarantined pending reconciliation"
+                )
             if not self._settings.demo_execution_enabled:
                 raise MT5ConfigurationError("Demo trading is disabled")
             if position_ticket <= 0:
@@ -443,6 +704,7 @@ class MT5ConnectionManager:
                 "magic": magic, "comment": comment,
             }
             await self._execution_guard(actual_symbol, maximum_spread_points)
+            self._order_check_calls += 1
             check = await self._vendor_call(
                 self._client.order_check, request,
                 error_message="MT5 order check failed",
@@ -462,6 +724,10 @@ class MT5ConnectionManager:
         maximum_spread_points: float = 300.0,
     ) -> dict[str, Any]:
         async with self._lock:
+            if self._mutation_quarantined:
+                raise MT5ConnectionError(
+                    "MT5 broker mutations are quarantined pending reconciliation"
+                )
             if not self._settings.demo_execution_enabled:
                 raise MT5ConfigurationError("Demo trading is disabled")
             if order_ticket <= 0 or magic <= 0:
@@ -478,6 +744,7 @@ class MT5ConnectionManager:
                 "magic": magic, "comment": comment,
             }
             await self._execution_guard(actual_symbol, maximum_spread_points)
+            self._order_check_calls += 1
             check = await self._vendor_call(
                 self._client.order_check, request,
                 error_message="MT5 order check failed",
@@ -493,6 +760,8 @@ class MT5ConnectionManager:
 
     async def broker_snapshot(self, magic: int) -> dict[str, list[dict[str, Any]]]:
         async with self._lock:
+            if not self._connected or not self._demo_verified:
+                await self._recover_locked()
             self._require_connected()
             await self._active_demo_account()
             positions_raw = await self._vendor_call(
@@ -515,6 +784,36 @@ class MT5ConnectionManager:
                 "orders": [self._sanitize_order(item) for item in (*orders_raw, *history_orders_raw) if int(self._value(item, "magic", -1)) == magic],
                 "deals": [self._sanitize_deal(item) for item in deals_raw if int(self._value(item, "magic", -1)) == magic],
             }
+
+    async def confirm_reconciliation(self) -> None:
+        """Open the mutation gate only after broker snapshot persistence succeeds."""
+        async with self._lock:
+            self._reconciliation_required = False
+            self._mutation_quarantined = False
+            if self._connected and self._demo_verified:
+                self._connector.mark_connected()
+
+    async def position_inventory(self) -> list[dict[str, Any]]:
+        """Return safe ownership metadata for before/after integration assertions."""
+        async with self._lock:
+            self._require_connected()
+            await self._active_demo_account()
+            positions = await self._vendor_call(
+                self._client.positions_get,
+                error_message="MT5 positions request failed",
+            ) or ()
+            return [
+                {
+                    "ticket": int(self._value(item, "ticket", 0)),
+                    "magic": int(self._value(item, "magic", 0)),
+                    "symbol": str(self._value(item, "symbol", "")),
+                    "direction": self._client.position_direction(
+                        int(self._value(item, "type", -1))
+                    ),
+                    "volume": self._finite_or_none(self._value(item, "volume")),
+                }
+                for item in positions
+            ]
 
     async def _resolve_symbol(
         self, requested_symbol: str | None = None
@@ -647,18 +946,27 @@ class MT5ConnectionManager:
     async def _send_unknown_safe(
         self, request: dict[str, object], symbol: str
     ) -> dict[str, Any]:
+        if self._pre_send_guard is not None:
+            self._pre_send_guard()
         self._order_send_calls += 1
         try:
-            result = await asyncio.wait_for(
-                asyncio.to_thread(self._client.order_send, request),
-                timeout=self._settings.mt5_timeout_ms / 1000,
+            result = await self._connector.call(
+                "order_send",
+                request,
+                timeout_seconds=self._settings.mt5_order_send_timeout_ms / 1000,
             )
-        except Exception:
+        except (ConnectorCallError, ConnectorTimeoutError):
+            self._enter_quarantine("order_send", ambiguous=True)
+            self._schedule_recovery()
             return self._unknown_result(request, symbol)
         if result is None:
             return self._unknown_result(request, symbol)
         retcode = int(self._value(result, "retcode", -1))
         outcome = self._client.trade_outcome(retcode)
+        if outcome == "UNKNOWN":
+            self._mutation_quarantined = True
+            self._reconciliation_required = True
+            self._connector.mark_degraded()
         return {
             "outcome": outcome, "retcode": retcode,
             "retcode_name": OrderCheckService.retcode_name(retcode),
@@ -704,12 +1012,95 @@ class MT5ConnectionManager:
         error_message: str,
         **kwargs: Any,
     ) -> Any:
+        operation_name = operation.__name__
         try:
-            return await asyncio.to_thread(operation, *args, **kwargs)
-        except Exception as exc:
-            message = self._sanitize(f"{error_message}: {exc}")
-            self._last_error = message
-            raise MT5ConnectionError(message) from None
+            return await self._connector.call(
+                operation_name,
+                *args,
+                timeout_seconds=self._settings.mt5_vendor_timeout_ms / 1000,
+                **kwargs,
+            )
+        except ConnectorTimeoutError:
+            self._enter_quarantine(operation_name, ambiguous=False)
+            self._schedule_recovery()
+            message = f"{error_message}: vendor timeout"
+        except ConnectorCallError:
+            self._enter_quarantine(operation_name, ambiguous=False)
+            self._schedule_recovery()
+            message = f"{error_message}: connector failure"
+        self._last_error = message
+        raise MT5ConnectionError(message) from None
+
+    def _enter_quarantine(self, operation: str, *, ambiguous: bool) -> None:
+        was_connected = self._connected
+        self._connected = False
+        self._demo_verified = False
+        self._resolved_symbol = None
+        self._state = MT5ConnectionState.CONNECTION_ERROR
+        self._mutation_quarantined = True
+        self._reconciliation_required = self._reconciliation_required or ambiguous
+        self._last_error = f"MT5 connector quarantined after {operation}"
+        if was_connected:
+            self._connection_version += 1
+
+    def _schedule_recovery(self) -> None:
+        if self._recovery_task is None or self._recovery_task.done():
+            self._recovery_task = asyncio.create_task(
+                self._recover(), name="mt5-connector-recovery"
+            )
+
+    async def _recover(self) -> None:
+        async with self._lock:
+            await self._recover_locked()
+
+    async def _recover_locked(self) -> bool:
+        if self._connected and self._demo_verified:
+            return True
+        missing = self._missing_configuration()
+        if missing:
+            self._connector.mark_failed()
+            return False
+        password = self._settings.mt5_password.get_secret_value()  # type: ignore[union-attr]
+        path = str(self._settings.mt5_path) if self._settings.mt5_path else None
+        for attempt in range(1, self._settings.mt5_recovery_retries + 1):
+            try:
+                await self._connector.recover()
+                initialized = await self._connector.call(
+                    "initialize",
+                    path,
+                    login=self._settings.mt5_login,
+                    password=password,
+                    server=self._settings.mt5_server,
+                    timeout=self._settings.mt5_timeout_ms,
+                    timeout_seconds=self._settings.mt5_timeout_ms / 1000,
+                )
+                account = await self._connector.call(
+                    "account_info",
+                    timeout_seconds=self._settings.mt5_vendor_timeout_ms / 1000,
+                ) if initialized else None
+                if account is None or self._value(
+                    account, "trade_mode"
+                ) != self._client.demo_trade_mode:
+                    raise ConnectorCallError("account_info")
+                self._connected = True
+                self._demo_verified = True
+                self._state = MT5ConnectionState.CONNECTED
+                self._last_error = None
+                self._connection_version += 1
+                if not self._reconciliation_required:
+                    self._mutation_quarantined = False
+                self._connector.mark_connected()
+                return True
+            except (ConnectorCallError, ConnectorTimeoutError):
+                self._connector.record_retry()
+                if attempt < self._settings.mt5_recovery_retries:
+                    await asyncio.sleep(self._settings.mt5_recovery_delay_seconds)
+        self._connected = False
+        self._demo_verified = False
+        self._state = MT5ConnectionState.CONNECTION_ERROR
+        self._last_error = "MT5 connector recovery failed"
+        self._connector.mark_failed()
+        return False
 
     async def _ensure_demo(self, account: object) -> None:
         trade_mode = self._value(account, "trade_mode")
@@ -720,21 +1111,28 @@ class MT5ConnectionManager:
         self._demo_verified = False
         self._state = MT5ConnectionState.REAL_ACCOUNT_REJECTED
         self._last_error = "Only MetaTrader 5 demo accounts are allowed"
+        self._connector.mark_failed()
         logger.error("MT5 connection rejected because the active account is not demo")
         raise MT5RealAccountRejected(self._last_error)
 
     async def _safe_shutdown(self) -> None:
         try:
-            await asyncio.to_thread(self._client.shutdown)
-        except Exception as exc:
-            logger.warning("MT5 shutdown failed: %s", self._sanitize(str(exc)))
+            await self._connector.call(
+                "shutdown",
+                timeout_seconds=self._settings.mt5_vendor_timeout_ms / 1000,
+            )
+        except (ConnectorCallError, ConnectorTimeoutError):
+            logger.warning("MT5 shutdown failed or timed out")
 
     async def _vendor_error(self) -> str:
         try:
-            code, message = await asyncio.to_thread(self._client.last_error)
+            code, message = await self._connector.call(
+                "last_error",
+                timeout_seconds=self._settings.mt5_vendor_timeout_ms / 1000,
+            )
             return self._sanitize(f"MT5 error {code}: {message}")
-        except Exception as exc:
-            return self._sanitize(f"MT5 error unavailable: {exc}")
+        except (ConnectorCallError, ConnectorTimeoutError):
+            return "MT5 error unavailable"
 
     def _validate_geometry(
         self, direction: str, price: float, stop: float, target: float,
@@ -828,11 +1226,10 @@ class MT5ConnectionManager:
             raise MT5ConnectionError("MT5 demo account is not connected")
 
     def _sanitize(self, message: str) -> str:
-        for value in (self._settings.mt5_password, self._settings.demo_admin_token):
-            if value:
-                secret = value.get_secret_value()
-                if secret:
-                    message = message.replace(secret, "[REDACTED]")
+        if self._settings.mt5_password:
+            secret = self._settings.mt5_password.get_secret_value()
+            if secret:
+                message = message.replace(secret, "[REDACTED]")
         return message
 
     @staticmethod

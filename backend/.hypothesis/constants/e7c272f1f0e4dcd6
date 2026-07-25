@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\schemas\risk.py
+# hypothesis_version: 6.151.9
+
+[100, 'APPROVED', 'ATR', 'BUY', 'HOLD', 'REJECTED', 'SELL', 'SUPPORT_RESISTANCE', 'SWING', 'forbid']

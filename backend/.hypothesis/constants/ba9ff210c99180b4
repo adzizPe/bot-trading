@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\paper\manager.py
+# hypothesis_version: 6.151.9
+
+[1000, '; ', 'APPROVED', 'BUY', 'CANDIDATE', 'OPEN', 'SELL', 'account', 'adjustment_logs', 'ask', 'auto_opened', 'bid', 'closed', 'commission', 'demo_verified', 'direction', 'entry_price', 'initial_stop_loss', 'name', 'opened_at', 'point', 'position_id', 'position_size_lots', 'processed', 'risk_lock_reasons', 'risk_locked', 'signal_id', 'slippage_points', 'status', 'stop_change_log', 'stop_loss', 'symbol', 'tick', 'tick_size', 'tick_value', 'time', 'time_msc', 'timestamp', 'trade_plan_id', 'volume', 'volume_max', 'volume_min', 'volume_step']

@@ -1,0 +1,7 @@
+# Optional: copy to brotli.conf only when `nginx -V` confirms Brotli modules.
+# Always run nginx -t before reload; unknown directives must fail closed.
+brotli on;
+brotli_comp_level 5;
+brotli_min_length 1024;
+brotli_static on;
+brotli_types application/javascript application/json application/manifest+json application/xml image/svg+xml text/css text/plain text/xml;

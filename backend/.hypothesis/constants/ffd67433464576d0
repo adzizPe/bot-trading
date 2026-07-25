@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\auth\middleware.py
+# hypothesis_version: 6.151.9
+
+[400, 401, 403, 500, 'CSRF mismatch', 'DELETE', 'FAILURE', 'GET', 'OPTIONS', 'PATCH', 'POST', 'PUT', 'Request rejected', 'SUCCESS', 'X-Request-ID', 'access_token', 'csrf_token', 'detail', 'permission', 'principal', 'x-csrf-token']

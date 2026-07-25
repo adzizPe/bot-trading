@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\demo\repository.py
+# hypothesis_version: 6.151.9
+
+[100, 255, 'ACCEPTED', 'BROKER_OPEN', 'BUY', 'CLOSE_SUBMITTED', 'CLOSE_UNKNOWN', 'COMPLETED', 'EMERGENCY_STOP', 'FAILED', 'MISSING', 'OPEN', 'REJECTED', 'RESERVED', 'RUNNING', 'STOPPED', 'SUBMITTED', 'UNKNOWN', 'at', 'broker_comment', 'broker_deals', 'broker_orders', 'broker_positions', 'commission', 'current_price', 'deal', 'default', 'direction', 'entry_price', 'executed_at', 'failure', 'idempotency_key', 'max_open_positions', 'max_trades_per_day', 'opened_at', 'operations', 'order', 'outcome', 'position', 'position_id', 'price', 'profit', 'reconciled_order', 'requested_price', 'requested_sl', 'requested_tp', 'requested_volume', 'retcode', 'retcode_message', 'retcode_name', 'sanitized_request', 'signal_id', 'status', 'stop_loss', 'swap', 'symbol', 'take_profit', 'ticket', 'trade_plan_id', 'type', 'volume']

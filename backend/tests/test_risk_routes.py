@@ -1,10 +1,10 @@
 from datetime import date, datetime, timezone
 from typing import Any
 
-from fastapi.testclient import TestClient
 
 from app.main import create_app
 from app.mt5.manager import MT5ConnectionManager
+from tests.auth_helpers import authenticated_client
 from tests.fakes import FakeMT5Client
 from tests.test_mt5_manager import make_settings
 
@@ -78,7 +78,7 @@ def test_risk_endpoints_and_openapi_contract() -> None:
     app = create_app(
         settings, manager, trade_plan_service=FakeRiskService()  # type: ignore[arg-type]
     )
-    with TestClient(app) as api:
+    with authenticated_client(app) as api:
         assert api.get("/api/v1/risk/settings").status_code == 200
         updated = api.put(
             "/api/v1/risk/settings", json={"risk_per_trade_percent": 0.5}
@@ -93,5 +93,26 @@ def test_risk_endpoints_and_openapi_contract() -> None:
         assert created.json()["status"] == "APPROVED"
         assert api.get("/api/v1/risk/trade-plans").status_code == 200
         assert api.get("/api/v1/risk/trade-plans/plan-1").status_code == 200
-        paths = api.get("/openapi.json").json()["paths"]
+        paths = app.openapi()["paths"]
         assert "/api/v1/risk/trade-plan" in paths
+
+
+def test_risk_settings_enforce_operator_and_risk_admin_boundary() -> None:
+    from app.auth.permissions import RoleName
+
+    settings = make_settings()
+    app = create_app(
+        settings,
+        MT5ConnectionManager(FakeMT5Client(), settings),
+        trade_plan_service=FakeRiskService(),  # type: ignore[arg-type]
+    )
+    with authenticated_client(app, RoleName.OPERATOR) as api:
+        assert api.put(
+            "/api/v1/risk/settings", json={"risk_per_trade_percent": 0.5}
+        ).status_code == 403
+    with authenticated_client(app, RoleName.RISK_ADMIN) as api:
+        response = api.put(
+            "/api/v1/risk/settings", json={"risk_per_trade_percent": 0.5}
+        )
+        assert response.status_code == 200
+        assert response.json()["risk_per_trade_percent"] == 0.5

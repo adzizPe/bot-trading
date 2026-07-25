@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.analysis.exceptions import AnalysisError
 from app.analysis.service import AnalysisService
 from app.api.dependencies import get_analysis_service
+from app.auth.dependencies import require_permission
+from app.auth.permissions import Permission
 from app.market_data.exceptions import (
     InvalidTimeframeError,
     MarketDataError,
@@ -18,7 +20,9 @@ from app.schemas.analysis import (
     SignalResponse,
 )
 
-router = APIRouter(prefix="/analysis", tags=["analysis"])
+router = APIRouter(prefix="/analysis", tags=["analysis"], dependencies=[
+    Depends(require_permission(Permission.READ_SIGNALS))
+])
 ServiceDependency = Annotated[AnalysisService, Depends(get_analysis_service)]
 
 
@@ -60,7 +64,9 @@ async def analysis_multi_timeframe(
     except (AnalysisError, MarketDataError, MT5Error, ValueError) as error:
         raise _http_error(error) from error
 
-@router.post("/signal", response_model=SignalResponse)
+@router.post("/signal", response_model=SignalResponse, dependencies=[
+    Depends(require_permission(Permission.ANALYSIS_GENERATE))
+])
 async def analysis_signal(
     service: ServiceDependency,
     payload: SignalRequest | None = None,

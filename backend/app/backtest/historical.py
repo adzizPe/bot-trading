@@ -1,3 +1,4 @@
+from bisect import bisect_left, bisect_right
 import csv
 import math
 from collections.abc import Iterable, Mapping
@@ -19,6 +20,8 @@ class HistoricalDataService:
 
     def __init__(self) -> None:
         self._datasets: dict[str, tuple[BacktestCandle, ...]] = {}
+        self._timestamps: dict[str, tuple[datetime, ...]] = {}
+        self._close_times: dict[str, tuple[datetime, ...]] = {}
 
     def load(
         self,
@@ -30,8 +33,11 @@ class HistoricalDataService:
         frame = self._timeframe(timeframe)
         normalized = [self._candle(item, frame) for item in candles]
         self.validate(normalized, frame, validate_gaps=validate_gaps)
-        self._datasets[frame] = tuple(normalized)
-        return list(normalized)
+        values = tuple(normalized)
+        self._datasets[frame] = values
+        self._timestamps[frame] = tuple(item.timestamp for item in values)
+        self._close_times[frame] = tuple(item.close_time for item in values)
+        return list(values)
 
     load_candles = load
 
@@ -48,7 +54,10 @@ class HistoricalDataService:
     def candles(self, timeframe: str = "M5") -> list[BacktestCandle]:
         frame = self._timeframe(timeframe)
         if frame not in self._datasets:
-            self._datasets[frame] = tuple(self._aggregate(frame))
+            values = tuple(self._aggregate(frame))
+            self._datasets[frame] = values
+            self._timestamps[frame] = tuple(item.timestamp for item in values)
+            self._close_times[frame] = tuple(item.close_time for item in values)
         return list(self._datasets[frame])
 
     def slice_at(
@@ -58,8 +67,11 @@ class HistoricalDataService:
         count: int | None = None,
     ) -> list[BacktestCandle]:
         at = utc_datetime(decision_time, "decision_time")
-        values = [item for item in self.candles(timeframe) if item.close_time <= at]
-        return values[-count:] if count is not None else values
+        frame = self._timeframe(timeframe)
+        self.candles(frame)
+        end = bisect_right(self._close_times[frame], at)
+        start = max(0, end - count) if count is not None else 0
+        return list(self._datasets[frame][start:end])
 
     closed_at = slice_at
 
@@ -67,10 +79,11 @@ class HistoricalDataService:
         self, decision_time: datetime, timeframe: str = "M5"
     ) -> BacktestCandle | None:
         at = utc_datetime(decision_time, "decision_time")
-        return next(
-            (item for item in self.candles(timeframe) if item.timestamp >= at),
-            None,
-        )
+        frame = self._timeframe(timeframe)
+        self.candles(frame)
+        index = bisect_left(self._timestamps[frame], at)
+        values = self._datasets[frame]
+        return values[index] if index < len(values) else None
 
     @staticmethod
     def validate(
@@ -109,25 +122,44 @@ class HistoricalDataService:
         if target_seconds % TIMEFRAME_SECONDS["M5"]:
             raise HistoricalDataError(f"cannot aggregate M5 into {timeframe}")
         required = target_seconds // TIMEFRAME_SECONDS["M5"]
-        groups: dict[int, list[BacktestCandle]] = {}
-        for candle in self._datasets["M5"]:
-            bucket = int(candle.timestamp.timestamp()) // target_seconds * target_seconds
-            groups.setdefault(bucket, []).append(candle)
         result: list[BacktestCandle] = []
-        for values in groups.values():
-            if len(values) != required:
-                continue
-            result.append(
-                BacktestCandle(
-                    timestamp=values[0].timestamp,
-                    open=values[0].open,
-                    high=max(item.high for item in values),
-                    low=min(item.low for item in values),
-                    close=values[-1].close,
-                    volume=sum(item.volume for item in values),
-                    timeframe=timeframe,
-                )
-            )
+        bucket_key: int | None = None
+        first: BacktestCandle | None = None
+        last: BacktestCandle | None = None
+        high = 0.0
+        low = 0.0
+        volume = 0.0
+        count = 0
+
+        def append_complete() -> None:
+            if count != required or first is None or last is None:
+                return
+            result.append(BacktestCandle(
+                timestamp=first.timestamp,
+                open=first.open,
+                high=high,
+                low=low,
+                close=last.close,
+                volume=volume,
+                timeframe=timeframe,
+            ))
+
+        for candle in self._datasets["M5"]:
+            current = int(candle.timestamp.timestamp()) // target_seconds * target_seconds
+            if current != bucket_key:
+                append_complete()
+                bucket_key = current
+                first = candle
+                high = candle.high
+                low = candle.low
+                volume = 0.0
+                count = 0
+            last = candle
+            high = max(high, candle.high)
+            low = min(low, candle.low)
+            volume += candle.volume
+            count += 1
+        append_complete()
         return result
 
     @staticmethod

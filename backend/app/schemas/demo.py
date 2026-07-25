@@ -169,6 +169,7 @@ class DemoStatusResponse(BaseModel):
     enabled: bool
     engine: dict[str, Any]
     broker: dict[str, Any]
+    safety: dict[str, Any] | None = None
 
 
 class DemoEmergencyStopResponse(BaseModel):

@@ -9,6 +9,8 @@ from app.demo.validator import OrderRequestValidator
 from app.mt5.exceptions import MT5Error
 from app.mt5.manager import MT5ConnectionManager
 from app.risk.service import TradePlanService
+from app.safety.exceptions import SafetyLockedError
+from app.safety.manager import SafetyManager
 
 
 class DemoExecutor:
@@ -16,11 +18,12 @@ class DemoExecutor:
 
     def __init__(
         self, manager: MT5ConnectionManager, repository: DemoRepository,
-        plans: TradePlanService,
+        plans: TradePlanService, safety: SafetyManager | None = None,
     ) -> None:
         self._manager = manager
         self._repository = repository
         self._plans = plans
+        self._safety = safety
 
     async def execute(
         self, trade_plan_id: str, idempotency_key: str, settings: dict[str, Any]
@@ -81,8 +84,29 @@ class DemoExecutor:
                 deviation=int(settings["deviation_points"]),
                 maximum_spread_points=float(settings["maximum_spread_points"]),
                 risk_percent=float(raw_plan["risk_percent"]),
+                maximum_send_attempts=int(settings.get("maximum_send_attempts", 2)),
             )
-        except (MT5Error, DemoValidationError, ValueError, TypeError):
+        except SafetyLockedError as error:
+            result = {
+                "outcome": "REJECTED", "retcode": None, "order": None,
+                "deal": None, "volume": plan.volume, "price": None,
+                "requested_price": 0, "symbol": plan.symbol, "attempts": 0,
+                "retcode_name": "SAFETY_LOCKED",
+                "retcode_message": "Request blocked by safety layer",
+                "reconciliation_required": False,
+            }
+            order = await self._repository.complete_intent(
+                intent["execution_request_id"], values, result
+            )
+            await self._repository.add_event(
+                "execution", order["execution_request_id"], "ORDER_BLOCK",
+                "Demo execution blocked by final safety guard",
+                {"guardian": error.guardian, "reason": error.reason},
+            )
+            raise
+        except (MT5Error, DemoValidationError, ValueError, TypeError) as error:
+            if isinstance(error, MT5Error) and self._safety is not None:
+                await self._safety.record_infrastructure_error("MT5")
             result = {
                 "outcome": "REJECTED", "retcode": None, "order": None,
                 "deal": None, "volume": plan.volume, "price": None,
@@ -115,6 +139,7 @@ class DemoExecutor:
             deviation=int(settings["deviation_points"]),
             maximum_spread_points=float(settings["maximum_spread_points"]),
             position_ticket=int(position["broker_position_ticket"]),
+            maximum_send_attempts=int(settings.get("maximum_send_attempts", 2)),
         )
         if result["outcome"] in {"ACCEPTED", "UNKNOWN"}:
             status = (

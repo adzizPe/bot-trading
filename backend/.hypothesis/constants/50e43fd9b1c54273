@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\websocket\hub.py
+# hypothesis_version: 6.151.9
+
+[0.0, 0.01, 1.0, 60.0, 123, 1000, 1008, 1011, 1012, 1013, 1024, 4401, 4403, 4408, 4429, '-inf', 'Access token expired', 'Client send timeout', 'JSON object required', 'Server shutdown', '_total_ms', 'active_by_topic', 'active_connections', 'ask', 'bid', 'broadcasts', 'captured_at', 'connection_status', 'data', 'default', 'detail', 'dropped_messages', 'error', 'event', 'market_cache', 'market_read_failures', 'market_reads', 'market_status', 'metrics', 'ping', 'points', 'pong', 'price', 'published_messages', 'reconnects', 'rejected_handshakes', 'rejected_limits', 'running', 'sent_messages', 'spread', 'spread_points', 'spread_price', 'state', 'stopping', 'subscribe', 'subscribed', 'tick', 'timestamp', 'topic', 'topics', 'total_connections', 'type', 'unavailable']

@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\backtest\repository.py
+# hypothesis_version: 6.151.9
+
+[0.0, 100.0, 100, 500, 1000, 2000, 10000, 'CANCELLED', 'COMPLETED', 'FAILED', 'PENDING', 'RUNNING', 'configuration', 'csv_path', 'csv_upload_id', 'source', 'statistics', 'strategy_name', 'symbol', 'symbol_specification']

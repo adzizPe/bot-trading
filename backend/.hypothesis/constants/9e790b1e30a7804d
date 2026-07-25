@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\database\models\backtest.py
+# hypothesis_version: 6.151.9
+
+[0.0, 100, 'CASCADE', 'backtest_events', 'backtest_id', 'backtest_positions', 'backtest_reports', 'backtest_settings', 'backtest_trades', 'backtests', 'created_at', 'sequence', 'status']
