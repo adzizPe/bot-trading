@@ -177,3 +177,18 @@ def test_operational_scripts_exist_for_config_test_rotation_and_benchmark() -> N
     assert "catch {" in BENCHMARK
     assert "BaseUri must use HTTPS" in BENCHMARK
     assert (ROOT / "docs" / "deployment" / "windows-nginx.md").is_file()
+
+
+def test_authoritative_readiness_is_exact_and_healthz_remains_edge_only() -> None:
+    readiness = block("location = /api/v1/health/readiness")
+    edge_health = block("location = /healthz")
+    assert CONFIG.count("location = /api/v1/health/readiness") == 1
+    assert "zone=readiness_per_ip:10m rate=60r/m;" in CONFIG
+    assert "include snippets/proxy-common.conf;" in readiness
+    assert "proxy_pass http://trading_backend;" in readiness
+    assert "proxy_connect_timeout 5s;" in readiness
+    assert "proxy_send_timeout 5s;" in readiness
+    assert "proxy_read_timeout 5s;" in readiness
+    assert 'add_header Cache-Control "no-store" always;' in readiness
+    assert "proxy_pass" not in edge_health
+    assert 'return 200 "ok\\n";' in edge_health

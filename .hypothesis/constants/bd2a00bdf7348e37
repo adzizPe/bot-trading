@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\operations\models.py
+# hypothesis_version: 6.151.9
+
+[128, 180, '+00:00', ',', ':', 'ACTIVE', 'CERTIFICATE', 'EVIDENCE', 'FAIL', 'LAST_KNOWN_GOOD', 'LOG', 'PASS', 'RECOVERY', 'RELEASE', 'RETIRED', 'ReleaseManifest', 'STAGED', 'STATE', 'Z', '^[0-9a-f]{64}$', 'after', 'alembic_revision', 'application_id', 'application_version', 'ascii', 'backend_sha256', 'before', 'capacity_summary', 'category', 'certificate_summary', 'checked_at', 'created_at', 'event_id', 'event_type', 'finished_at', 'forbid', 'frontend_identity', 'frontend_sha256', 'gate', 'gate_results', 'identity is required', 'json', 'microseconds', 'monitoring_summary', 'nginx_sha256', 'observations', 'path_categories', 'recovery_summary', 'release_id', 'retain_until', 'revision', 'signed_off_at', 'source_identity', 'started_at', 'utf-8']

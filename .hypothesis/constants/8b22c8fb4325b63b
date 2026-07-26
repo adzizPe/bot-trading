@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\recovery\offhost.py
+# hypothesis_version: 6.151.9
+
+[5.0, 300.0, 448, 1024, 4096, 'after_copy', 'backups', 'before_copy', 'before_local_receipt', 'before_local_status', 'before_metadata', 'copy_chunk', 'errno', 'off-host copy failed', 'off-host root', 'offhost-receipt.json', 'rb', 'xb']

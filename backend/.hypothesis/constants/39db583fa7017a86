@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\recovery\leases.py
+# hypothesis_version: 6.151.9
+
+[b'\x00', 0.0, 0.05, 5.0, 384, 448, '+00:00', ',', '-_', '..', '.locks', ':', ':memory:', 'BEGIN EXCLUSIVE', 'Z', 'a+b', 'ascii', 'hostname_hash', 'microseconds', 'nt', 'operation_id', 'pid', 'recovery.lock', 'replace', 'sqlite', 'started_at', 'utf-8', 'wb']

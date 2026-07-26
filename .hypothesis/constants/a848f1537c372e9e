@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\risk_feasibility\builder.py
+# hypothesis_version: 6.151.9
+
+['BUY', 'CANDIDATE', 'account', 'ask', 'atr', 'balance', 'bid', 'currency', 'direction', 'equity', 'name', 'point', 'session_weekdays', 'settings_id', 'signal_id', 'status', 'stop_loss', 'symbol', 'tick', 'trade_freeze_level', 'trade_stops_level', 'trade_tick_size', 'trade_tick_value', 'updated_at', 'use_equity_for_risk', 'volume_max', 'volume_min', 'volume_step']

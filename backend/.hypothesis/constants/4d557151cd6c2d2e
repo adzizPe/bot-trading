@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\operations\config.py
+# hypothesis_version: 6.151.9
+
+[120, 180, 300, 600, '..', 'NSSM', 'OperationalPaths', 'OperationalPolicy', 'PM2', 'active_reference', 'active_sqlite', 'after', 'certificate_root', 'evidence_root', 'forbid', 'log_root', 'recovery_root', 'release_root', 'st_file_attributes', 'state_root']

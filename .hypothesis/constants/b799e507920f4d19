@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\operations\capacity.py
+# hypothesis_version: 6.151.9
+
+[100, 128, 1024, ',', 'BACKEND_LOG', 'BACKUP_FORENSIC', 'BACKUP_LOCAL', 'BACKUP_OFFHOST', 'BACKUP_WORK', 'CRITICAL', 'HEALTHY', 'NGINX_LOG', 'RELEASE', 'SQLITE_DB', 'SQLITE_SHM', 'SQLITE_WAL', 'VENV', 'VITE_DIST', 'WARNING', 'roles']

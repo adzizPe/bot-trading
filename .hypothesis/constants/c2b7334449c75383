@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\api\routes\demo.py
+# hypothesis_version: 6.151.9
+
+[100, 422, 1000, '/deals', '/demo', '/emergency-stop', '/execute', '/executions', '/orders', '/orders/{order_id}', '/pause', '/pending', '/pending/{ticket}', '/positions', '/reconcile', '/settings', '/start', '/status', '/stop', 'CLOSE_SUBMITTED', 'CLOSE_UNKNOWN', 'EmergencyStopManager', 'MISSING', 'OPEN', 'SAFETY_LOCKED', 'X-Idempotency-Key', 'code', 'demo-trading', 'emergency_active', 'guardian', 'reason', 'status']

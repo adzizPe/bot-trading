@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\database\models\__init__.py
+# hypothesis_version: 6.151.9
+
+['AuthSession', 'Backtest', 'BacktestEvent', 'BacktestPosition', 'BacktestReport', 'BacktestSettings', 'BacktestTrade', 'CircuitBreakerError', 'DailyRiskState', 'DemoEngineState', 'DemoEvent', 'DemoOrder', 'DemoOrderIntent', 'DemoPosition', 'DemoSettings', 'DemoTrade', 'LoginAttempt', 'PaperAccount', 'PaperEngineState', 'PaperEquitySnapshot', 'PaperOrder', 'PaperPosition', 'PaperSettings', 'PaperTrade', 'RiskSettings', 'Role', 'SafetyEvent', 'SafetyNewsEvent', 'SafetySettings', 'SafetyState', 'Signal', 'TradePlan', 'User']

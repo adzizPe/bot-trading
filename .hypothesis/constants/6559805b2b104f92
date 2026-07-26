@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\api\routes\readiness.py
+# hypothesis_version: 6.151.9
+
+[429, 503, '/health/readiness', 'Cache-Control', 'Not ready', 'Rate limited', 'X-Backend-Readiness', 'authoritative', 'description', 'json', 'no-store']

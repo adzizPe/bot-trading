@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\operations\secret_audit.py
+# hypothesis_version: 6.151.9
+
+['AVAILABLE', 'CRASH_OUTPUT', 'ERROR', 'EVIDENCE', 'LOG', 'MISSING', 'MONITORING', 'MT5_DISCONNECTED', 'PROCESS_ARGV', 'RELEASE_ARTIFACT', 'REPOSITORY_ADDITION', 'REVOKED', 'ROTATION_DUE', 'SERVICE_DEFINITION', 'TASK_DEFINITION', 'authorization', 'backup', 'canary', 'environment-dump', 'mt5', 'private-key', 'session', 'startup-required']

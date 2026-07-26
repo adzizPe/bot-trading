@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\recovery\verification.py
+# hypothesis_version: 6.151.9
+
+[0.0, 'alembic', 'authentication', 'candidate.db', 'checksum', 'integrity_check', 'manifest is invalid', 'ok', 'repository_smoke']

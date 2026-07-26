@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\auth\service.py
+# hypothesis_version: 6.151.9
+
+[255, 'FAILURE', 'Invalid CSRF token', 'Invalid credentials', 'Request rejected', 'SUCCESS', 'UNKNOWN', 'Unknown access token', 'User not found', 'access_expires_at', 'action', 'authorization', 'cookie', 'created_at', 'endpoint', 'event_id', 'failure_reason', 'is_active', 'occurred_at', 'password', 'permission', 'permissions', 'refresh_expires_at', 'request_id', 'result', 'revoked_at', 'role', 'role changed', 'secret', 'session_id', 'source_ip', 'token', 'unknown', 'user_id', 'username']

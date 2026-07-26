@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\backtest\historical.py
+# hypothesis_version: 6.151.9
+
+[0.0, 300, 900, 1800, 3600, 14400, 86400, 'D1', 'H1', 'H4', 'M1', 'M15', 'M30', 'M5', 'close', 'decision_time', 'high', 'low', 'open', 'tick_volume', 'time', 'timestamp', 'utf-8-sig', 'volume']

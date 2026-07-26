@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\recovery\types.py
+# hypothesis_version: 6.151.9
+
+['/', 'AES_256_GCM', 'ARTIFACT_FORMAT', 'AVAILABLE', 'BACKEND_ACTIVE', 'CHECKSUM_MISMATCH', 'COPYING', 'DAILY', 'DISK_SPACE', 'FAIL', 'FAILED', 'FILESYSTEM', 'GZIP', 'INTEGRITY_FAILED', 'INTERNAL_FAILURE', 'INTERRUPTED', 'INVALID', 'IN_PROGRESS', 'MONTHLY', 'NEVER', 'NONE', 'NOT_ATTEMPTED', 'NOT_REQUIRED', 'NOT_RUN', 'OFFHOST_UNAVAILABLE', 'OPERATION_TIMEOUT', 'PASS', 'RESTORED', 'RETENTION_SAFETY', 'SOURCE_LOCKED', 'SOURCE_UNSUPPORTED', 'UNAVAILABLE', 'VALID', 'VALIDATED', 'VALIDATING', 'VERIFIED', 'WEEKLY', '\\', '^[0-9a-f]{64}$', 'artifact.btbak', 'artifact_bytes', 'artifact_size', 'backup_age_seconds', 'backup_filename', 'backup_seconds', 'backup_size', 'checksum_sha256', 'completed_at', 'copied_at', 'created_at', 'elapsed_seconds', 'manifest.json', 'source_database', 'source_logical_bytes', 'started_at', 'verification_seconds', 'verified_at']

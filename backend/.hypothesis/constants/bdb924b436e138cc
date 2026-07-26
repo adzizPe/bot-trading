@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\recovery\status.py
+# hypothesis_version: 6.151.9
+
+[384, 448, '+00:00', ',', '.json', ':', 'Z', 'ascii', 'availability', 'backup_age_seconds', 'completed_at', 'drill', 'drill-', 'drill_id', 'failure_reason', 'microseconds', 'offhost_status', 'restore_seconds', 'rpo_met', 'rpo_target_seconds', 'rto_met', 'rto_target_seconds', 'schema_version', 'success', 'wb']

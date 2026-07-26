@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\api\routes\risk.py
+# hypothesis_version: 6.151.9
+
+[200, '/feasibility', '/risk', '/settings', '/status', '/trade-plan', '/trade-plans', 'Cache-Control', 'Signal was not found', 'no-store', 'risk-management', 'signal_id']

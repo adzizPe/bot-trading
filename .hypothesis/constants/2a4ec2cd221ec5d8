@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\demo\validator.py
+# hypothesis_version: 6.151.9
+
+[100, 'CANDIDATE', 'EXECUTE DEMO ORDER', 'created_at', 'direction', 'inf', 'risk_amount', 'risk_percent', 'signal_id', 'spread_points', 'status']

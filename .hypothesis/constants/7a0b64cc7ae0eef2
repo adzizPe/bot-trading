@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\database\models\signal.py
+# hypothesis_version: 6.151.9
+
+['candle_time', 'created_at', 'direction', 'signals', 'strategy_name', 'symbol', 'uq_signals_dedup']

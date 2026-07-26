@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\auth\permissions.py
+# hypothesis_version: 6.151.9
+
+['EXECUTION_ADMIN', 'OPERATOR', 'RISK_ADMIN', 'SUPER_ADMIN', 'VIEWER', 'analysis:generate', 'backtest:cancel', 'backtest:submit', 'dashboard:read', 'demo:execute', 'demo:position:manage', 'demo:settings:update', 'market:read', 'mt5:control', 'paper:control', 'paper:trade', 'risk:feasibility', 'risk:settings:update', 'roles:manage', 'safety:reset', 'sessions:invalidate', 'signals:read', 'statistics:read', 'trade-plan:create', 'users:manage']

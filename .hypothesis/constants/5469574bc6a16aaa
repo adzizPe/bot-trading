@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\paper\engine.py
+# hypothesis_version: 6.151.9
+
+[1.0, 'risk_locked', 'scheduler_running', 'status']

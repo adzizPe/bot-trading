@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\analysis\candle_confirmation.py
+# hypothesis_version: 6.151.9
+
+['BEARISH', 'BULLISH', 'NONE', 'close', 'high', 'is_closed', 'low', 'open']

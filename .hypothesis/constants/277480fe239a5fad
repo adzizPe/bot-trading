@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\operations\monitoring.py
+# hypothesis_version: 6.151.9
+
+[128, 300, 600, 900, 'ALERT_LATE', 'BACKEND_READINESS', 'CAPACITY', 'CERTIFICATE', 'CRITICAL', 'DELIVERY', 'EDGE_LIVENESS', 'HEALTHY', 'HOST', 'LOG_ROTATION', 'PROBE_FAILURE', 'PROCESS_COUNT', 'PROCESS_MANAGER', 'RECOVERY', 'SCHEDULED_TASK', 'SYNTHETIC_TEST', 'WARNING', 'category', 'healthy', 'level', 'observed_at', 'release_id', 'state', 'synthetic', 'unknown']

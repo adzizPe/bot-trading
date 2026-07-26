@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\operations\service_management.py
+# hypothesis_version: 6.151.9
+
+[120, 256, 600, 8000, '--factory', '--host', '--port', '--reload', '--workers', '-c', '-m', '-p', '.venv', '1', '127.0.0.1', '8000', '::1', '=', 'AUTOMATIC', 'BACKEND', 'EDGE', 'MANUAL', 'NSSM', 'OPERATOR_SHELL', 'PM2', 'PM2Options', 'RUNNING', 'START', 'STARTUP_FOLDER', 'STOPPED', 'Scripts', 'ServiceDefinition', 'TASK_SCHEDULER', 'TradingBotBackend', 'TradingBotNginx', 'after', 'app.main:app', 'arguments', 'backend', 'backend.environment', 'backend.stderr.log', 'backend.stdout.log', 'conf/nginx.conf', 'dependencies', 'dist', 'edge.environment', 'environment_source', 'executable', 'forbid', 'fork', 'frontend', 'identity', 'interpreter', 'nginx.exe', 'nginx.stderr.log', 'nginx.stdout.log', 'process_manager', 'protected', 'python.exe', 'service_name', 'static_root', 'stderr_log', 'stdout_log', 'svc-trading-backend', 'svc-trading-edge', 'uvicorn', 'working_directory']

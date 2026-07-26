@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\operations\hardening.py
+# hypothesis_version: 6.151.9
+
+[443, 8000, 8080, 'admin-source', 'audit-policy', 'build-watcher', 'clock-drift', 'container-runtime', 'debug', 'docs', 'eventlog-retention', 'external-queue', 'firewall-baseline', 'firewall-public-port', 'listener-unapproved', 'malware', 'remote-admin-scope', 'review-stale', 'time-sync', 'update-unsupported', 'uvicorn-reload', 'vite-dev']

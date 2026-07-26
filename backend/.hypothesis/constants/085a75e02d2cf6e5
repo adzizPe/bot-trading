@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\operations\recovery_handoff.py
+# hypothesis_version: 6.151.9
+
+['FAILED', 'SUCCESS', 'TradingBotBackend', 'TradingBotNginx', 'backend-stop-failed', 'edge-stop-failed', 'lease-online', 'listener-online', 'process-online', 'writers-online']

@@ -2,6 +2,8 @@
 
 Milestone 10.5 tetap memakai deployment native: satu Uvicorn worker pada `127.0.0.1:8000`, Vite build di `frontend/dist`, Nginx Windows sebagai TLS reverse proxy, dan NSSM/PM2 sebagai process manager. Tidak ada container, service queue, atau upstream tambahan.
 
+Untuk ordering service, readiness, lifecycle, update/rollback, evidence, dan Restore Hold Milestone 10.8, gunakan [primary native Windows service operations runbook](windows-service-operations.md). Runbook ini tetap authoritative untuk konfigurasi edge. Static `/healthz` hanya membuktikan **Edge Liveness**; completion juga memerlukan authoritative **Backend Readiness** pada exact `/api/v1/health/readiness` melalui loopback dan proxy Nginx. Jangan mempublikasikan Uvicorn sebagai fallback.
+
 ## 1. Prasyarat dan placeholder
 
 Gunakan build Nginx Windows tepercaya yang mendukung OpenSSL modern, TLS 1.2/1.3, `stub_status`, `limit_req`, `limit_conn`, gzip, dan OCSP stapling. Template `frontend/nginx.conf` adalah full top-level config, bukan hanya `server` include. Native Nginx Windows memakai satu worker; angka `worker_connections` tetap harus dibuktikan dengan capacity test pada binary target karena event model Windows dapat memberi batas efektif yang lebih rendah.

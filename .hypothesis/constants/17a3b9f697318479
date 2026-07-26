@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\schemas\analysis.py
+# hypothesis_version: 6.151.9
+
+[100, 1000, 'BEARISH', 'BULLISH', 'BUY', 'CANDIDATE', 'H1', 'HOLD', 'M15', 'M5', 'NEUTRAL', 'NONE', 'REJECTED', 'SELL', 'forbid']

@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\database\models\risk.py
+# hypothesis_version: 6.151.9
+
+['daily_risk_state', 'risk_settings', 'signals.signal_id', 'trade_plans']

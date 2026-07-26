@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\recovery\cli.py
+# hypothesis_version: 6.151.9
+
+[4096, '+00:00', ',', '--backup-id', '--dry-run', '--first-restore', '.drill-work', ':', 'FAILED', 'INPUT_INVALID', 'LEASE_UNAVAILABLE', 'OPERATION_FAILED', 'PASS', 'TRUNCATED', 'Z', '__main__', 'ascii', 'backup', 'backup ID is invalid', 'backup_id', 'command', 'command is invalid', 'copy-offhost', 'deleted', 'drill', 'drill_id', 'dry_run', 'eligible', 'exit_code', 'failed_stage', 'failures', 'isatty', 'kept', 'microseconds', 'migrations', 'operation', 'reason', 'recovery', 'restore', 'restore_id', 'retention', 'reused', 'skipped', 'status', 'store_true', 'success', 'unknown', 'verify']

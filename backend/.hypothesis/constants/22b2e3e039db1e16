@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\recovery\paths.py
+# hypothesis_version: 6.151.9
+
+[1024, '.', '..', '.work', '//', ':memory:', '\\\\', 'destination', 'forensic', 'local root', 'managed path', 'managed root', 'off-host root', 'project directory', 'source database', 'sqlite']

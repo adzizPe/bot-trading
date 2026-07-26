@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\operations\certificates.py
+# hypothesis_version: 6.151.9
+
+[128, 86400, 'CRITICAL', 'HEALTHY', 'WARNING', 'acl', 'chain', 'committed', 'date', 'expiry', 'external', 'fingerprint', 'hostname', 'key_pair', 'nginx_config', 'valid']

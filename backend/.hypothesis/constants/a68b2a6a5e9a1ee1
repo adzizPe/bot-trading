@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\recovery\backup.py
+# hypothesis_version: 6.151.9
+
+[0.0, 'busy', 'locked', 'manifest_valid', 'ok', 'preflight', 'roundtrip.db', 'snapshot.db', 'verification']

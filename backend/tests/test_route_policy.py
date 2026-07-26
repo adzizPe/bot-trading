@@ -30,6 +30,7 @@ def test_every_operational_http_route_has_explicit_policy() -> None:
     )
     public = {
         ("GET", "/api/v1/health"),
+        ("GET", "/api/v1/health/readiness"),
         ("POST", "/api/v1/auth/login"),
         ("POST", "/api/v1/auth/refresh"),
     }
@@ -74,7 +75,8 @@ def test_only_minimal_health_is_public_and_contract_is_exact() -> None:
         settings, MT5ConnectionManager(FakeMT5Client(), settings),
         auth_service=ProductionContractAuthFake(),  # type: ignore[arg-type]
     )
-    with TestClient(app) as client:
+    client = TestClient(app)
+    try:
         health = client.get("/api/v1/health")
         assert health.status_code == 200
         assert health.json() == {
@@ -85,6 +87,8 @@ def test_only_minimal_health_is_public_and_contract_is_exact() -> None:
         assert client.get("/api/v1/market/timeframes").status_code == 401
         assert client.get("/docs").status_code == 404
         assert client.get("/openapi.json").status_code == 404
+    finally:
+        client.close()
     assert "/api/v1/health" in app.openapi()["paths"]
 
 
@@ -94,6 +98,9 @@ def test_docs_are_disabled_in_production() -> None:
         settings, MT5ConnectionManager(FakeMT5Client(), settings),
         auth_service=ProductionContractAuthFake(),  # type: ignore[arg-type]
     )
-    with TestClient(app) as client:
+    client = TestClient(app)
+    try:
         assert client.get("/docs").status_code == 404
         assert client.get("/openapi.json").status_code == 404
+    finally:
+        client.close()

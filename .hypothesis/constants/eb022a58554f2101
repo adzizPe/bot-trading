@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\api\routes\analysis.py
+# hypothesis_version: 6.151.9
+
+[404, 1000, '/analysis', '/indicators', '/latest-signal', '/multi-timeframe', '/signal', 'M15', 'analysis']

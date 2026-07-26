@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\schemas\risk_feasibility.py
+# hypothesis_version: 6.151.9
+
+['%', 'APPLICABLE', 'BALANCE', 'DIAGNOSTIC_ONLY', 'EQUITY', 'FEASIBLE', 'INFEASIBLE', 'UNAVAILABLE', 'forbid', 'lot', 'point']

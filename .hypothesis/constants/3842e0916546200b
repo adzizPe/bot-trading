@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\risk\types.py
+# hypothesis_version: 6.151.9
+
+['1', '1.5', '100', '2.0', '3', '5', 'ATR', 'SUPPORT_RESISTANCE', 'SWING', 'atr_multiplier', 'contract_size', 'minimum_risk_reward', 'point', 'stop_loss_method', 'target_risk_reward', 'trade_freeze_level', 'trade_stops_level', 'trade_tick_size', 'trade_tick_value', 'volume_max', 'volume_min', 'volume_step']

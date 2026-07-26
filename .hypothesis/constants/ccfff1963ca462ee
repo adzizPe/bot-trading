@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\risk\limiters.py
+# hypothesis_version: 6.151.9
+
+[100, '0', 'consecutive_losses', 'cooldown_until', 'equity', 'floating_drawdown', 'peak_equity', 'realized_loss', 'starting_balance', 'trades_count']

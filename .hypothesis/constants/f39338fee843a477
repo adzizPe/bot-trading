@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\safety\guardians.py
+# hypothesis_version: 6.151.9
+
+[100, 'ASIA', 'America/New_York', 'Asia/Tokyo', 'CUSTOM', 'ConnectionGuardian', 'DailyLossGuardian', 'DrawdownGuardian', 'Europe/London', 'HIGH', 'High-impact event', 'LONDON', 'NEW_YORK', 'NewsGuardian', 'SpreadGuardian', 'UTC', 'WeekendGuardian', 'active_sessions', 'blocking_events', 'connected', 'daily_loss_percent', 'demo_verified', 'drawdown_percent', 'floating_drawdown', 'impact', 'limit_percent', 'matched_sessions', 'max_spread_points', 'peak_equity', 'realized_loss', 'scheduled_at', 'spread_points', 'starting_balance', 'state', 'terminal_api_enabled', 'title', 'trade_plan_id', 'weekday']

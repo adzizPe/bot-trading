@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\api\routes\market.py
+# hypothesis_version: 6.151.9
+
+[0.25, 60.0, 100, 403, 404, 422, 503, 4401, 4403, '/', '/market/candles', '/market/spread', '/market/tick', '/market/timeframes', '/websocket/status', '/ws', '/ws/market', 'M1', 'access_token', 'authorization', 'bearer ', 'detail', 'market-data', 'origin', 'timeframes']

@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\operations\restore_hold.py
+# hypothesis_version: 6.151.9
+
+[256, 384, 448, ',', ':', 'HELD', 'PENDING', 'RELEASED', 'RestoreHoldRecord', 'SUCCESS', 'after', 'ambiguous', 'ambiguous-state', 'ascii', 'change_id', 'forbid', 'hold-state-malformed', 'json', 'restore_id', 'reviewed-release', 'unknown', 'unknown-operator', 'unknown-reviewer', 'updated_at', 'wb']

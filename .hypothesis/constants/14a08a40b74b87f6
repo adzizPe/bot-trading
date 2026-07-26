@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\api\routes\backtest.py
+# hypothesis_version: 6.151.9
+
+[200, 500, 1000, 10000, '/backtests', '/limits', '/queue', '/resources', '/uploads', '/{backtest_id}', 'Content-Disposition', 'backtests', 'close_reason', 'closed_at', 'commission', 'direction', 'entry_price', 'entry_time', 'exit_price', 'exit_reason', 'exit_time', 'gross_pnl', 'gross_profit_loss', 'ignore', 'isoformat', 'json', 'net_pnl', 'net_profit_loss', 'opened_at', 'signal_id', 'stop_loss', 'swap', 'take_profit', 'text/csv', 'trade_id', 'trade_plan_id', 'volume']

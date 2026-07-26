@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\demo\state.py
+# hypothesis_version: 6.151.9
+
+['CONNECTION_LOST', 'EMERGENCY_STOP', 'ERROR', 'PAUSED', 'RISK_LOCKED', 'RUNNING', 'STARTING', 'STOPPED']

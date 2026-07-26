@@ -5,6 +5,11 @@ pydantic-settings==2.14.2
 SQLAlchemy[asyncio]==2.0.51
 aiosqlite==0.22.1
 alembic==1.18.5
+# 46.0.3 supports Python >=3.8 (including 3.10), publishes Windows abi3
+# wheels, and exposes chunked Cipher(AES, GCM) update/finalize primitives.
+# Evidence: https://pypi.org/project/cryptography/46.0.3/
+# API: https://cryptography.io/en/46.0.3/hazmat/primitives/symmetric-encryption/
+cryptography==46.0.3
 python-multipart==0.0.32
 MetaTrader5==5.0.5735
 tzdata==2025.2

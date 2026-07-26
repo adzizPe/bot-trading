@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\database\models\auth.py
+# hypothesis_version: 6.151.9
+
+[128, 255, 'auth_sessions', 'login_attempts', 'occurred_at', 'revoked_at', 'roles', 'roles.name', 'source_ip', 'user_id', 'username', 'users', 'users.user_id']

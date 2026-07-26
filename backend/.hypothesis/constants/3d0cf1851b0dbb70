@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\operations\releases.py
+# hypothesis_version: 6.151.9
+
+[b'\x00', 256, 448, 600, 'AVAILABLE', 'INVALID', 'UNAVAILABLE', 'UNVERIFIED', 'VALID', 'VERIFIED', 'acceptance-timeout', 'accepted', 'ambiguous', 'api-read-only', 'ascii', 'backend', 'backend-readiness', 'backend.bundle', 'frontend', 'frontend.bundle', 'https', 'lkg-unavailable', 'nginx', 'nginx-validation', 'nginx.conf', 'previous_release_id', 'release-identity', 'release_id', 'rolled-back', 'startup-failed', 'static', 'trading-safe', 'updated', 'venv.bundle', 'websocket']

@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\analysis\engine.py
+# hypothesis_version: 6.151.9
+
+['BEARISH', 'BULLISH', 'BUY', 'CANDIDATE', 'H1', 'H1/M15/M5', 'HOLD', 'M15', 'M5', 'REJECTED', 'SELL', 'Spread filter passed', 'atr', 'candle_confirmation', 'candle_time', 'close', 'confidence_score', 'created_at', 'data_quality', 'data_valid', 'direction', 'ema_fast', 'ema_fast_previous', 'ema_slow', 'ema_slow_previous', 'market_structure', 'reasons', 'rejection_reasons', 'rsi', 'rsi_filter', 'score_factors', 'setup_alignment', 'setup_timeframe', 'signal_id', 'spread_filter', 'status', 'strategy_name', 'symbol', 'timeframe', 'trend_alignment', 'trend_timeframe']

@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.safety.audit import AuditTrail
 from app.safety.manager import SafetyManager
+from app.version import APP_VERSION
 
 Probe = Callable[[], Awaitable[bool]]
 
@@ -122,7 +123,7 @@ class HeartbeatMonitor:
 class HealthMonitor:
     def __init__(
         self, safety: SafetyManager, heartbeat: HeartbeatMonitor,
-        version: str = "0.9.5", build: str = "milestone-9.5",
+        version: str = APP_VERSION, build: str = "milestone-9.5",
     ) -> None:
         self._safety = safety
         self._heartbeat = heartbeat

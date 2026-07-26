@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\analysis\service.py
+# hypothesis_version: 6.151.9
+
+[0.0, 'H1', 'H1/M15/M5', 'HOLD', 'M15', 'M5', 'REJECTED', 'atr', 'candle_time', 'confidence_score', 'confirmation', 'confirmation_candle', 'created_at', 'cutoff', 'datasets', 'direction', 'indicators', 'reasons', 'rejection_reasons', 'score_factors', 'setup', 'setup_timeframe', 'signal_id', 'spread_points', 'status', 'strategy_name', 'symbol', 'tick', 'timeframe', 'trend', 'trend_timeframe']

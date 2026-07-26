@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\market_data\service.py
+# hypothesis_version: 6.151.9
+
+[300, 900, 1000, 1800, 3600, 14400, 86400, 'Candle data is empty', 'D1', 'H1', 'H4', 'M1', 'M15', 'M30', 'M5', 'ask', 'bid', 'candles', 'close', 'connected', 'connection_status', 'digits', 'end_time', 'high', 'is_closed', 'low', 'now', 'open', 'point', 'real_volume', 'spread', 'spread_points', 'spread_price', 'start_time', 'symbol', 'tick', 'tick_volume', 'time', 'time_msc', 'timestamp']

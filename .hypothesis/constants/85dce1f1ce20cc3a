@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\operations\lifecycle.py
+# hypothesis_version: 6.151.9
+
+[384, 448, ',', ':', 'TradingBotBackend', 'TradingBotNginx', 'allowed', 'ambiguous', 'ambiguous-state', 'ascii', 'attempt-limit', 'attempts', 'clean', 'edge-drain-timeout', 'exit-not-recorded', 'last_exit', 'operator_released', 'quarantined', 'quarantined_at', 'reason', 'recovered', 'recovery-gate-failed', 'restart-delay', 'restore-hold', 'services', 'stale-listener', 'stale-process', 'stale-runtime-lease', 'wb']

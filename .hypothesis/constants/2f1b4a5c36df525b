@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\recovery\logging.py
+# hypothesis_version: 6.151.9
+
+[256, 2048, '+00:00', ',', ':', 'FAILED', 'FILESYSTEM', 'INTERNAL', 'REDACTED', 'TIMEOUT', 'TRUNCATED', 'VALIDATION', 'Z', '[REDACTED]', 'backup_id', 'category', 'count', 'elapsed_ms', 'event', 'message', 'operation_id', 'restore_id', 'result', 'status', 'timestamp', 'utf-8']

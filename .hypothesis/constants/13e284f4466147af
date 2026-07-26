@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\recovery\catalog.py
+# hypothesis_version: 6.151.9
+
+[384, 448, '+00:00', ',', '.locks', '.work', ':', 'Z', '__dataclass_fields__', 'alembic', 'application_version', 'artifact_bytes', 'artifact_size', 'authentication', 'backup_filename', 'backup_id', 'backup_seconds', 'backup_size', 'backups', 'checksum', 'checksum_sha256', 'completed_at', 'compression', 'copied_at', 'created_at', 'database_revision', 'encrypted', 'encryption', 'failure_reason', 'forensic', 'integrity_check', 'key_id', 'metrics', 'microseconds', 'offhost', 'offhost-receipt.json', 'offhost.verified_at', 'operations', 'r', 'repository_smoke', 'rpo_class', 'schema_version', 'source_database', 'source_logical_bytes', 'status', 'status.json', 'utf-8', 'verification', 'verification_seconds', 'verified_at', 'wb']

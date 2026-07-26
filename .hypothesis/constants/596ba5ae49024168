@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\recovery\smoke.py
+# hypothesis_version: 6.151.9
+
+[128, 10000, ',', ':', 'PRAGMA query_only=ON', 'ascii', 'big', 'bytes_hex', 'roles', 'safety_events', 'signals', 'type', 'value']

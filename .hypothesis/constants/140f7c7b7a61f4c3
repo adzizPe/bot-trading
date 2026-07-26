@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\safety\manager.py
+# hypothesis_version: 6.151.9
+
+['CIRCUIT_OPENED', 'CIRCUIT_RESET', 'CONNECTION_LOST', 'CRITICAL', 'CircuitBreaker', 'ConnectionGuardian', 'DAILY_LOSS_BLOCK', 'DEGRADED', 'DRAWDOWN_BLOCK', 'DailyLossGuardian', 'DrawdownGuardian', 'EMERGENCY_STOP', 'ERROR', 'EmergencyStopManager', 'GUARDIAN_TRIGGER', 'HeartbeatMonitor', 'NEWS_BLOCK', 'NewsGuardian', 'ORDER_BLOCK', 'SESSION_BLOCK', 'SPREAD_BLOCK', 'STARTING', 'SafetyManager', 'SpreadGuardian', 'UNHEALTHY', 'WARNING', 'WEEKEND_BLOCK', 'WeekendGuardian', 'allowed', 'category', 'circuit_breaker', 'circuit_error_count', 'circuit_open_until', 'circuit_opened_at', 'details', 'emergency', 'error_count', 'guardians', 'heartbeat_status', 'reason', 'status']

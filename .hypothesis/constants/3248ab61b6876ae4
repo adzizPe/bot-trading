@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\backtest\types.py
+# hypothesis_version: 6.151.9
+
+[300, 900, 1800, 3600, 14400, 86400, '+00:00', '0', '0.01', '1', '1.5', '100', '10000', '2', '3', '300', '5', 'ATR', 'BUY', 'D1', 'END_OF_DATA', 'H1', 'H4', 'HOLD', 'M1', 'M15', 'M30', 'M5', 'SELL', 'SL_FIRST', 'STOP_LOSS', 'SUPPORT_RESISTANCE', 'SWING', 'TAKE_PROFIT', 'TP_FIRST', 'Z', 'close', 'close_time', 'commission_per_lot', 'high', 'initial_balance', 'is_closed', 'low', 'minimum_risk_reward', 'open', 'point', 'real_volume', 'same_bar_policy', 'slippage_points', 'spread', 'spread_points', 'stop_atr_multiplier', 'stop_loss_method', 'swap_long_per_lot', 'swap_short_per_lot', 'target_risk_reward', 'tick_size', 'tick_value', 'tick_volume', 'timeframe', 'timestamp', 'trade_freeze_level', 'trade_stops_level', 'value', 'volume_max', 'volume_min', 'volume_step', '|']

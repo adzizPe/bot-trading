@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\recovery\artifact.py
+# hypothesis_version: 6.151.9
+
+[b'BTBAK\r\n\x1a', 128, 384, 448, 1024, '+00:00', ',', ':', '>8sHI', 'Z', 'application_version', 'artifact_compression', 'artifact_decrypt', 'artifact_encrypt', 'artifact_fsync', 'artifact_rename', 'ascii', 'backup_id', 'compression', 'created_at', 'database_revision', 'encryption', 'microseconds', 'nonce', 'plaintext_size', 'rb', 'wb']

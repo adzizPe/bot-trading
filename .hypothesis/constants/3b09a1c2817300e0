@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\paper\services.py
+# hypothesis_version: 6.151.9
+
+[0.0, 100, 200, 1000, 100000, 'APPROVED', 'BUY', 'SELL', 'auto_trade_enabled', 'average_loss', 'average_win', 'balance', 'break_even_enabled', 'break_even_trigger_r', 'commission_per_lot', 'consecutive_losses', 'consecutive_wins', 'current_balance', 'current_equity', 'direction', 'drawdown', 'equity', 'expectancy', 'gross_loss', 'gross_profit', 'initial_balance', 'losing_trades', 'maximum_drawdown', 'net_profit', 'net_profit_loss', 'profit_factor', 'settings_id', 'signal_id', 'slippage_points', 'status', 'swap_long_per_lot', 'swap_short_per_lot', 'total_trades', 'trade_plan_id', 'trailing_stop_method', 'updated_at', 'win_rate', 'winning_trades']

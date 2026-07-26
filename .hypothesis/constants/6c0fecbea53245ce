@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\operations\controller.py
+# hypothesis_version: 6.151.9
+
+[1.0, 'AVAILABLE', 'BACKEND_GATE', 'BACKEND_STARTING', 'CREATED', 'EDGE_STARTING', 'EDGE_VALIDATION', 'FAIL', 'FAILED', 'FINAL_GATE', 'PASS', 'PENDING', 'PREFLIGHT', 'TradingBotBackend', 'TradingBotNginx', 'available', 'backend-start-failed', 'cold-boot-timeout', 'edge-liveness-failed', 'edge-start-failed', 'preflight-failed', 'process-state-failed', 'start-not-authorized', 'trading-safe-failed']

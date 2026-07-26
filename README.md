@@ -89,6 +89,32 @@ Edge menerapkan rate dan connection limit terpisah untuk API, login, upload, ser
 
 Gzip aktif. Brotli tersedia sebagai snippet opt-in dan hanya boleh di-include setelah `nginx -V` membuktikan modul tersedia serta `nginx -t` lulus. Asset Vite hashed menggunakan cache satu tahun `immutable`, sedangkan `index.html` memakai `no-store`. `/nginx/status` menggunakan `stub_status` dan hanya mengizinkan loopback. Access/error/WebSocket log dipisah; script rotation, HTTPS benchmark read-only, serta runbook setup/update/backup/rollback/recovery tersedia di `docs/deployment/windows-nginx.md`. Deployment tetap native dan satu worker Uvicorn; tidak ada container atau deployment otomatis.
 
+## Status Milestone 10.7 — SQLite Backup and Recovery Readiness
+
+Recovery SQLite operator-side tersedia melalui wrapper native Windows PowerShell 5.1 untuk backup online, verifikasi, copy off-host terverifikasi, GFS retention, restore offline/dry-run, drill terisolasi, dan status. Target default adalah RPO 24 jam, RTO 2 jam, interval 24 jam, serta retention 7 daily/4 weekly/3 monthly. Setiap direktori backup memiliki `manifest.json` sebagai **source of truth**; `status.json` hanya cache tersanitasi yang dapat dibangun ulang.
+
+Command aman dari repository root:
+
+```powershell
+.\scripts\Backup-Database.ps1
+.\scripts\Verify-Backup.ps1 -BackupId '<backup-uuid>'
+.\scripts\Copy-BackupOffHost.ps1 -BackupId '<backup-uuid>'
+.\scripts\Invoke-BackupRetention.ps1 -DryRun
+.\scripts\Get-BackupStatus.ps1
+.\scripts\Restore-Database.ps1 -BackupId '<backup-uuid>' -DryRun
+.\scripts\Invoke-RestoreDrill.ps1
+```
+
+Restore dry-run tetap membutuhkan backend/writer offline dan menjalankan autentikasi/dekripsi, checksum, integrity, compatibility/migration pada candidate, serta repository smoke check, tetapi tidak membuat forensic copy final dan tidak mengubah active DB/WAL/SHM. Normal restore tidak dijadwalkan dan hanya boleh dijalankan manual setelah dry-run lulus; jangan restart backend/demo/MT5 setelah kegagalan atau setelah restore sampai seluruh post-check dan sign-off lulus. Raw copy active database bukan backup yang valid.
+
+`Get-BackupStatus.ps1` melaporkan availability, waktu backup/verifikasi terakhir, age dan `rpo_met`, status/waktu off-host, jadwal berikutnya, hasil/durasi drill dan `rto_met`, serta failure category terbaru. Batasan: key 32-byte base64 dan destination tidak memiliki default aman, key tidak boleh berada di argv/repository/script, restore wajib offline dan berbasis backup ID, penghapusan temporary plaintext hanya best effort sehingga ACL ketat dan encrypted volume wajib, dan operasi tidak mengendalikan lifecycle service. Deployment tetap native dan wajib **tepat satu worker Uvicorn**. Prosedur harian, Task Scheduler, incident, key lifecycle, forensic DB/WAL/SHM, restore, drill, dan sign-off ada di [runbook SQLite recovery Windows](docs/deployment/windows-sqlite-recovery.md).
+
+## Status Milestone 10.8 — Native Windows Service Operations Runbook
+
+Primary runbook operasional tersedia di [docs/deployment/windows-service-operations.md](docs/deployment/windows-service-operations.md). Topology canonical memakai NSSM; PM2 hanya alternatif mutually exclusive yang memerlukan review setara. Backend tetap exact satu worker Uvicorn dari venv pada `127.0.0.1:8000`, Vite `frontend/dist` dilayani Nginx, dan Nginx adalah satu-satunya edge publik. Static `/healthz` hanya Edge Liveness; release gate memerlukan Backend Readiness exact `/api/v1/health/readiness` melalui loopback dan proxy Nginx.
+
+Semua wrapper operations repository adalah offline `PLAN`/`WhatIf` secara default dan tidak membuktikan production telah dikonfigurasi. Eksekusi memerlukan reviewed host adapter terpisah dan deployment/change approval; repository tidak menyediakan adapter production. Runbook mencakup setup/lifecycle/reboot/update/rollback/failure/Windows Update, certificate/capacity/log/monitoring/hardening/secret/ACL, Restore Hold handoff tanpa mengubah semantics Milestone 10.7, disaster recovery, Operator Evidence Package dengan retention minimal 180 hari dan two-person sign-off, serta isolated drill setiap 90 hari. Semua lifecycle wajib Trading-Safe: MT5 disconnected, Demo/Paper stopped, dan zero broker mutation.
+
 ## Status Milestone 7
 
 Tersedia seluruh fondasi Milestone 1–6 serta:

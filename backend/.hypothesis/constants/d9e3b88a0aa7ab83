@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\operations\__init__.py
+# hypothesis_version: 6.151.9
+
+['DatabaseStatus', 'DiscoveryAdapter', 'EvidenceStore', 'FakeServiceAdapter', 'GateDecision', 'LeaseStatus', 'LifecycleOwner', 'LifecycleStatus', 'ListenerObservation', 'MutationCounters', 'OperationalPaths', 'OperationalPolicy', 'OwnershipClaim', 'PM2Options', 'PathCategory', 'ProcessManager', 'ProcessObservation', 'ReadinessEvaluator', 'ReadinessRateLimiter', 'ReadinessStatus', 'ReleaseManifest', 'RestartPolicy', 'RestoreHoldRecord', 'RestoreHoldStatus', 'RestoreHoldStore', 'ServiceComponent', 'ServiceDefinition', 'ServiceGateResult', 'StartupMode', 'canonical_path', 'hash_identity']

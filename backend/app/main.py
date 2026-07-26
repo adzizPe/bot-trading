@@ -2,10 +2,12 @@ from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import datetime, time, timezone
 import logging
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.analysis.candle_confirmation import CandleConfirmationDetector
@@ -29,10 +31,16 @@ from app.demo.service import DemoTradingService
 from app.market_data.service import MarketDataService
 from app.mt5.client import MetaTrader5Client
 from app.mt5.manager import MT5ConnectionManager
+from app.operations.readiness import (
+    ReadinessEvaluator,
+    ReadinessObservations,
+    ReadinessRateLimiter,
+)
 from app.paper.engine import PaperTradingEngine, PaperTradingStateManager
 from app.paper.manager import PaperTradeManager
 from app.paper.repository import PaperRepository
 from app.paper.services import PaperAccountService, PaperTradingStatisticsService
+from app.recovery.leases import DatabaseRuntimeLease
 from app.risk.repository import RiskRepository
 from app.risk.service import TradePlanService
 from app.risk_feasibility.gateway import ReadOnlyRiskSnapshotGateway
@@ -45,6 +53,7 @@ from app.safety.guardians import NewsGuardian, TradingSessionGuardian
 from app.safety.manager import SafetyManager
 from app.safety.monitor import HealthMonitor, HeartbeatMonitor
 from app.safety.repository import SafetyRepository
+from app.version import APP_VERSION
 from app.websocket.hub import WebSocketHub
 
 
@@ -60,6 +69,7 @@ def create_app(
     risk_feasibility_service: RiskFeasibilityService | None = None,
     auth_service: AuthService | None = None,
     backtest_repository_override: BacktestRepository | None = None,
+    release_id: str | None = None,
 ) -> FastAPI:
     settings = app_settings or get_settings()
     authentication = auth_service or AuthService(SessionFactory, settings)
@@ -176,9 +186,26 @@ def create_app(
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
+    runtime_lease = DatabaseRuntimeLease.from_database_url(
+        settings.database_url,
+        project_directory=Path.cwd(),
+        timeout_seconds=0.0,
+    )
+    selected_release_id = release_id or APP_VERSION
+    readiness_observations = ReadinessObservations(release_id=selected_release_id)
+    readiness_evaluator = ReadinessEvaluator()
+    readiness_rate_limiter = ReadinessRateLimiter()
+
+    async def readiness_database_probe() -> bool:
+        async with SessionFactory() as session:
+            await session.execute(text("SELECT 1"))
+        return True
+
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         async with AsyncExitStack() as cleanup:
+            runtime_lease.acquire()
+            cleanup.callback(runtime_lease.release)
             if backtest_database_engine is not None:
                 cleanup.push_async_callback(backtest_database_engine.dispose)
             cleanup.push_async_callback(close_database)
@@ -198,6 +225,29 @@ def create_app(
             initializer = getattr(demo, "initialize", None)
             if settings.demo_execution_enabled and initializer is not None:
                 await initializer()
+            readiness_observations.demo_stopped = not settings.demo_execution_enabled or (
+                initializer is not None
+            )
+
+            paper_status_reader = getattr(paper, "status", None)
+            if paper_status_reader is not None:
+                try:
+                    paper_status = await paper_status_reader()
+                except Exception:
+                    readiness_observations.paper_stopped = False
+                    readiness_observations.scheduler_stopped = False
+                else:
+                    readiness_observations.paper_stopped = (
+                        paper_status.get("status") == "STOPPED"
+                    )
+                    readiness_observations.scheduler_stopped = not bool(
+                        paper_status.get("scheduler_running")
+                    )
+
+            manager_status = manager.status()
+            readiness_observations.mt5_disconnected = not bool(
+                manager_status.get("connected")
+            )
             if (
                 settings.safety_enabled
                 and settings.demo_execution_enabled
@@ -207,11 +257,15 @@ def create_app(
                 await heartbeat.run_once()
                 await heartbeat.start()
                 cleanup.push_async_callback(heartbeat.stop)
-            yield
+            readiness_observations.startup_complete = True
+            try:
+                yield
+            finally:
+                readiness_observations.startup_complete = False
 
     application = FastAPI(
         title=settings.app_name,
-        version="0.10.2",
+        version=APP_VERSION,
         debug=settings.app_debug,
         lifespan=lifespan,
         docs_url=None,
@@ -219,6 +273,12 @@ def create_app(
         redoc_url=None,
     )
     application.state.settings = settings
+    application.state.database_runtime_lease = runtime_lease
+    application.state.readiness_observations = readiness_observations
+    application.state.readiness_evaluator = readiness_evaluator
+    application.state.readiness_rate_limiter = readiness_rate_limiter
+    application.state.readiness_database_probe = readiness_database_probe
+    application.state.expected_release_id = selected_release_id
     application.state.auth_service = authentication
     application.state.mt5_manager = manager
     application.state.market_data_service = market_data_service

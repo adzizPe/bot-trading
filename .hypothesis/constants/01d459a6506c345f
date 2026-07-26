@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\analysis\repository.py
+# hypothesis_version: 6.151.9
+
+['H1', 'M15', 'M5', 'candle_time', 'created_at', 'direction', 'strategy_name', 'symbol']

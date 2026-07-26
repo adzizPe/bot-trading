@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\risk\validators.py
+# hypothesis_version: 6.151.9
+
+['BUY', 'SELL', 'entry', 'spread_points', 'stop_loss', 'take_profit']

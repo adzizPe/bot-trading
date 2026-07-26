@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\demo\service.py
+# hypothesis_version: 6.151.9
+
+['ACCEPTED', 'CANCEL_PENDING', 'CLOSE_POSITION', 'EMERGENCY_STOP', 'MANUAL_DEMO', 'MODIFY_STOP', 'OPEN_ORDER', 'UNKNOWN', '_safety', 'broker', 'comment', 'deviation_points', 'enabled', 'engine', 'engine_id', 'execution_mode', 'intent_ttl_seconds', 'magic', 'results', 'safety', 'settings_id', 'spread_points', 'status', 'updated_at']

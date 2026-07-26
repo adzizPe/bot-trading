@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\operations\operational_logging.py
+# hypothesis_version: 6.151.9
+
+[128, ',', ':', 'BACKEND_STDIO', 'NGINX_ACCESS', 'NGINX_ERROR', 'NGINX_WEBSOCKET', 'OperationalLogRecord', 'RECOVERY_JSONL', 'TASK_SCHEDULER', 'WINDOWS_EVENT', 'ascii', 'category', 'change_id', 'component', 'duration_ms', 'event_id', 'event_ref', 'fields', 'occurred_at', 'release_id', 'result', 'source', 'state']

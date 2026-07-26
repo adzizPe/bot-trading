@@ -148,6 +148,22 @@ class Settings(BaseSettings):
     safety_circuit_window_minutes: int = Field(default=30, ge=1, le=1440)
     safety_circuit_lock_minutes: int = Field(default=30, ge=1, le=1440)
     safety_heartbeat_interval_seconds: int = Field(default=5, ge=1, le=300)
+    backup_rpo_hours: int = Field(default=24, ge=1, le=8760)
+    backup_rto_hours: int = Field(default=2, ge=1, le=168)
+    backup_interval_hours: int = Field(default=24, ge=1, le=8760)
+    backup_retention_daily: int = Field(default=7, ge=1, le=3660)
+    backup_retention_weekly: int = Field(default=4, ge=1, le=520)
+    backup_retention_monthly: int = Field(default=3, ge=1, le=1200)
+    backup_local_directory: Path | None = None
+    backup_offhost_directory: Path | None = None
+    backup_encryption_required: bool = True
+    backup_encryption_key: SecretStr | None = None
+    backup_encryption_key_env: str = Field(
+        default="BACKUP_ENCRYPTION_KEY", pattern=r"^[A-Z][A-Z0-9_]*$"
+    )
+    backup_compression: Literal["gzip", "none"] = "gzip"
+    backup_busy_timeout_seconds: int = Field(default=30, ge=1, le=3600)
+    backup_operation_timeout_seconds: int = Field(default=3600, ge=1, le=86400)
 
     @field_validator(
         "mt5_login", "mt5_password", "mt5_server", "mt5_path", mode="before",
@@ -156,10 +172,27 @@ class Settings(BaseSettings):
     def empty_mt5_values_are_none(cls, value: object) -> object:
         return None if value == "" else value
 
+    @field_validator(
+        "backup_local_directory", "backup_offhost_directory",
+        "backup_encryption_key", mode="before",
+    )
+    @classmethod
+    def empty_recovery_values_are_none(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
     @model_validator(mode="after")
-    def secure_production_cookies(self) -> "Settings":
+    def validate_cross_field_settings(self) -> "Settings":
         if self.app_env.lower() == "production" and not self.auth_cookie_secure:
             raise ValueError("AUTH_COOKIE_SECURE must be true in production")
+        if self.backup_interval_hours > self.backup_rpo_hours:
+            raise ValueError("BACKUP_INTERVAL_HOURS must not exceed BACKUP_RPO_HOURS")
+        if self.backup_operation_timeout_seconds < self.backup_busy_timeout_seconds:
+            raise ValueError(
+                "BACKUP_OPERATION_TIMEOUT_SECONDS must be at least "
+                "BACKUP_BUSY_TIMEOUT_SECONDS"
+            )
         return self
 
     model_config = SettingsConfigDict(

@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\schemas\paper.py
+# hypothesis_version: 6.151.9
+
+['ATR', 'BUY', 'CLOSED', 'EMERGENCY_STOPPED', 'ERROR', 'OPEN', 'PAUSED', 'POINTS', 'RISK_LOCKED', 'RUNNING', 'SELL', 'STARTING', 'STOPPED', 'forbid']

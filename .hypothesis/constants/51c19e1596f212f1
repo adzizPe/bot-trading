@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\demo\trailing.py
+# hypothesis_version: 6.151.9
+
+[0.01, 'SELL', 'current_price', 'direction', 'point', 'position_id']

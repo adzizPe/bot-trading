@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\risk_feasibility\mapper.py
+# hypothesis_version: 6.151.9
+
+['%', '+00:00', '-0', '.', '0', 'DIAGNOSTIC_ONLY', 'Z', 'account', 'account_at', 'advisory', 'analysis_timestamp', 'balance', 'calculation', 'capped_lot', 'captured_at', 'code', 'currency', 'direction', 'disclaimer', 'entry_price', 'equity', 'f', 'fresh_until', 'lot', 'market', 'message', 'minimum_broker_lot', 'minimum_lot_label', 'normalized_lot', 'percent', 'point', 'price', 'raw_lot', 'reasons', 'recommendation', 'risk_amount', 'risk_base_type', 'risk_base_value', 'risk_per_lot', 'snapshot_timestamps', 'source_signal_id', 'status', 'stop_distance', 'stop_distance_points', 'stop_loss_price', 'symbol', 'symbol_at', 'tick_at', 'tick_derived', 'ticks_at_risk', 'trade_tick_size', 'trade_tick_value', 'units', 'volume', 'volume_max', 'volume_min', 'volume_step']

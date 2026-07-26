@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\database\models\safety.py
+# hypothesis_version: 6.151.9
+
+[255, 'safety_events', 'safety_news_events', 'safety_settings', 'safety_state']

@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\backtest\execution.py
+# hypothesis_version: 6.151.9
+
+['0', 'BUY', 'CLOSED', 'OPEN', 'SELL', 'SL_FIRST', 'XAUUSD', 'bid', 'closed_at', 'commission', 'decision_time', 'direction', 'entry_bar_close_time', 'entry_price', 'exit_price', 'exit_reason', 'gross_pnl', 'net_pnl', 'opened_at', 'plan', 'position', 'position_id', 'position_size_lots', 'risk_amount', 'signal_id', 'status', 'stop_loss', 'symbol', 'take_profit', 'trade', 'trade_id', 'trade_plan_id', 'value', 'volume']

@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\demo\executor.py
+# hypothesis_version: 6.151.9
+
+[1000, 'ACCEPTED', 'CLOSE', 'CLOSE_SUBMITTED', 'CLOSE_UNKNOWN', 'CONNECTION_LOST', 'MISSING', 'MOVE_STOP', 'MT5', 'OPEN', 'ORDER_BLOCK', 'PRE_SEND_REJECTED', 'REJECTED', 'RESERVED', 'RISK_LOCKED', 'SAFETY_LOCKED', 'UNKNOWN', 'account_available', 'attempts', 'comment', 'deal', 'deviation_points', 'direction', 'entry_price', 'execution', 'execution_request_id', 'guardian', 'intent_ttl_seconds', 'magic', 'order', 'outcome', 'plan', 'position_id', 'price', 'reason', 'requested_price', 'requested_sl', 'requested_tp', 'requested_volume', 'retcode', 'retcode_message', 'retcode_name', 'risk', 'risk_locked', 'risk_percent', 'settings', 'signal', 'signal_id', 'status', 'stop_loss', 'symbol', 'take_profit', 'trade_plan_id', 'volume']

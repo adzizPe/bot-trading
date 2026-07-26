@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\analysis\types.py
+# hypothesis_version: 6.151.9
+
+[100, 'AnalysisConfig', 'atr_period', 'candle_body_atr_min', 'candle_count', 'ema_fast_period', 'ema_slow_period', 'max_levels', 'max_spread_points', 'rsi_overbought', 'rsi_oversold', 'rsi_period', 'sr_lookback', 'strategy_name', 'structure_lookback', 'swing_window']

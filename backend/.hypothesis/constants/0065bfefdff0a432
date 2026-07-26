@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\operations\log_rotation.py
+# hypothesis_version: 6.151.9
+
+[0.8, 1024, 'ACTIVE_LOG', 'BACKEND_ARCHIVE', 'BACKUP', 'CERTIFICATE', 'CRITICAL', 'DB', 'FORENSIC', 'HEALTHY', 'NGINX_ACCESS_ARCHIVE', 'NGINX_ERROR_ARCHIVE', 'SECRET', 'SHM', 'WAL', 'WARNING']

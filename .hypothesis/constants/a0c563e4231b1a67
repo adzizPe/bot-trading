@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\operations\access_control.py
+# hypothesis_version: 6.151.9
+
+['BACKEND', 'EDGE', 'MONITORING', 'OPERATOR', 'RECOVERY', 'REVIEWER', 'access-review-stale', 'acl-resource-unknown', 'certificate', 'config', 'data', 'evidence', 'full_control', 'identity-separation', 'interactive_logon', 'local_admin', 'logon_batch', 'logs', 'modify', 'read', 'recovery', 'recovery-auto-start', 'release', 'secret', 'sensitive-read', 'service-definition', 'service_reconfigure', 'service_start', 'write']

@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\recovery\retention.py
+# hypothesis_version: 6.151.9
+
+[5.0, 384, 448, 1024, ',', '.trash', ':', 'ACTIVE_COPY', 'ACTIVE_PARTIAL', 'COMMITTED', 'DELETE', 'GFS_CLASS', 'KEEP', 'LATEST_VALID', 'NON_VALID_LIFECYCLE', 'OFFHOST_REQUIRED', 'PREPARED', 'RESTORE_LEASE', 'SKIP', 'UNSAFE_PATH', 'after_commit', 'after_move', 'ascii', 'backup_id', 'backups', 'before_commit', 'before_move', 'during_purge', 'files', 'restore.lease', 'schema_version', 'state', 'transaction.json', 'wb']

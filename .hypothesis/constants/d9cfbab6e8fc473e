@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\database\models\demo.py
+# hypothesis_version: 6.151.9
+
+[128, 255, 500, 'demo_deals', 'demo_engine_state', 'demo_orders', 'demo_orders.order_id', 'demo_positions', 'demo_settings', 'reconciliation_runs', 'signals.signal_id']

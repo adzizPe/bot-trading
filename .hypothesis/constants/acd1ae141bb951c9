@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\backtest\strategy.py
+# hypothesis_version: 6.151.9
+
+['H1', 'HOLD', 'M15', 'M5', 'XAUUSD', 'atr', 'candle_time', 'close_time', 'decision_time', 'direction', 'signal', 'signal_id', 'symbol', 'timestamp']
