@@ -31,6 +31,24 @@ from app.demo.service import DemoTradingService
 from app.market_data.service import MarketDataService
 from app.mt5.client import MetaTrader5Client
 from app.mt5.manager import MT5ConnectionManager
+from app.observability import (
+    AlertStore,
+    CertificateCollector,
+    NativeWindowsEventLog,
+    NginxCollector,
+    ObservabilityService,
+    PassiveRuntimeCollector,
+    SQLiteCollector,
+    SystemCollector,
+    UnavailableEventLog,
+    UnavailableNativeSystem,
+    WindowsEventLogSink,
+    WindowsNativeSystem,
+)
+from app.observability.collectors import (
+    fetch_certificate_loopback,
+    fetch_nginx_loopback,
+)
 from app.operations.readiness import (
     ReadinessEvaluator,
     ReadinessObservations,
@@ -201,6 +219,38 @@ def create_app(
             await session.execute(text("SELECT 1"))
         return True
 
+    try:
+        native_system = WindowsNativeSystem()
+    except RuntimeError:
+        native_system = UnavailableNativeSystem()
+    event_log_adapter = (
+        NativeWindowsEventLog()
+        if settings.app_env.casefold() == "production"
+        else UnavailableEventLog()
+    )
+    database_path = runtime_lease.database_path
+    observability = ObservabilityService(
+        collectors=(
+            ("system", SystemCollector(
+                native_system,
+                database_path.parent if database_path is not None else Path.cwd(),
+            )),
+            ("sqlite", SQLiteCollector(
+                readiness_database_probe,
+                database_path,
+                lambda: runtime_lease.is_acquired,
+            )),
+            ("runtime", PassiveRuntimeCollector(
+                websocket_hub.status,
+                manager.status,
+                heartbeat.snapshot,
+            )),
+            ("nginx", NginxCollector(fetch_nginx_loopback)),
+            ("certificate", CertificateCollector(fetch_certificate_loopback)),
+        ),
+        alert_store=AlertStore(WindowsEventLogSink(event_log_adapter)),
+    )
+
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         async with AsyncExitStack() as cleanup:
@@ -216,6 +266,8 @@ def create_app(
                 await connector_starter()
             await websocket_hub.start()
             cleanup.push_async_callback(websocket_hub.stop)
+            await observability.start()
+            cleanup.push_async_callback(observability.stop)
 
             backtest_starter = getattr(backtest, "start", None)
             if backtest_starter is not None:
@@ -298,6 +350,7 @@ def create_app(
     application.state.safety_manager = safety
     application.state.heartbeat_monitor = heartbeat
     application.state.health_monitor = health_monitor
+    application.state.observability_service = observability
     application.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,

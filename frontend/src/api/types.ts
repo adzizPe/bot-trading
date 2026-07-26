@@ -664,3 +664,36 @@ export interface RiskFeasibilityResult {
   advisory: true
   disclaimer: string
 }
+
+export interface MonitoringObservation {
+  name: string
+  state: string
+  value: number | string | boolean | null
+  unit: string | null
+  detail: string
+}
+
+export interface MonitoringComponent {
+  name: string
+  state: string
+  observations: MonitoringObservation[]
+}
+
+export interface SystemMetrics {
+  status: string
+  observed_at: string
+  cached: boolean
+  components: Record<string, MonitoringComponent>
+}
+
+export interface MonitoringAlert {
+  alert_id: string
+  category: string
+  severity: string
+  state: string
+  first_observed_at: string
+  last_observed_at: string
+  occurrences: number
+  active: boolean
+  delivery_state: string
+}

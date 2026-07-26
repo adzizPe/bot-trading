@@ -36,6 +36,8 @@ const navigation = [
   { path: '/paper', label: 'Paper Trading', icon: TestTube2 },
   { path: '/backtesting', label: 'Backtesting', icon: BarChart3 },
   { path: '/mt5', label: 'MT5 Connection', icon: Network },
+  { path: '/system-metrics', label: 'System Metrics', icon: Activity },
+  { path: '/alerts', label: 'Alerts', icon: ScrollText },
   { path: '/logs', label: 'Logs', icon: ScrollText },
   { path: '/settings', label: 'Settings', icon: Settings },
 ]

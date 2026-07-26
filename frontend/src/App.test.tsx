@@ -10,7 +10,7 @@ describe('dashboard shell and core rendering', () => {
   it('routes to every primary dashboard area through semantic navigation', async () => {
     renderRoute('/analysis')
     expect(await screen.findByRole('heading', { name: 'Multi-timeframe analysis' })).toBeInTheDocument()
-    const labels = ['Overview', 'Market', 'Analysis', 'Signals', 'Risk Management', 'Risk Feasibility Analyzer', 'Trade Plans', 'Paper Trading', 'Backtesting', 'MT5 Connection', 'Logs', 'Settings']
+    const labels = ['Overview', 'Market', 'Analysis', 'Signals', 'Risk Management', 'Risk Feasibility Analyzer', 'Trade Plans', 'Paper Trading', 'Backtesting', 'MT5 Connection', 'System Metrics', 'Alerts', 'Logs', 'Settings']
     for (const label of labels) expect(screen.getByRole('link', { name: label })).toBeInTheDocument()
   })
 

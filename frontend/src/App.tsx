@@ -21,6 +21,8 @@ const RiskFeasibilityPage = lazy(() => import('./pages/RiskFeasibilityPage').the
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((module) => ({ default: module.SettingsPage })))
 const SignalsPage = lazy(() => import('./pages/SignalsPage').then((module) => ({ default: module.SignalsPage })))
 const TradePlansPage = lazy(() => import('./pages/TradePlansPage').then((module) => ({ default: module.TradePlansPage })))
+const SystemMetricsPage = lazy(() => import('./pages/SystemMetricsPage').then((module) => ({ default: module.SystemMetricsPage })))
+const AlertsPage = lazy(() => import('./pages/AlertsPage').then((module) => ({ default: module.AlertsPage })))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -49,6 +51,8 @@ export function AppRoutes() {
         <Route path="mt5" element={<MT5Page />} />
         <Route path="logs" element={<LogsPage />} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="system-metrics" element={<SystemMetricsPage />} />
+        <Route path="alerts" element={<AlertsPage />} />
         <Route path="*" element={<EmptyState title="Halaman tidak ditemukan" description="Pilih menu dashboard dari sidebar." />} />
       </Route>
     </Route>

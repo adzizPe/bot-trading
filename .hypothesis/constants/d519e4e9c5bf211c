@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\api\routes\observability.py
+# hypothesis_version: 6.151.9
+
+['/alerts', '/health/liveness', '/metrics', '/metrics/prometheus', '/monitoring', 'ALIVE', 'Cache-Control', 'backend', 'forbid', 'no-store', 'observability']

@@ -115,6 +115,10 @@ Primary runbook operasional tersedia di [docs/deployment/windows-service-operati
 
 Semua wrapper operations repository adalah offline `PLAN`/`WhatIf` secara default dan tidak membuktikan production telah dikonfigurasi. Eksekusi memerlukan reviewed host adapter terpisah dan deployment/change approval; repository tidak menyediakan adapter production. Runbook mencakup setup/lifecycle/reboot/update/rollback/failure/Windows Update, certificate/capacity/log/monitoring/hardening/secret/ACL, Restore Hold handoff tanpa mengubah semantics Milestone 10.7, disaster recovery, Operator Evidence Package dengan retention minimal 180 hari dan two-person sign-off, serta isolated drill setiap 90 hari. Semua lifecycle wajib Trading-Safe: MT5 disconnected, Demo/Paper stopped, dan zero broker mutation.
 
+## Status Milestone 10.9 — Production Monitoring & Alerting
+
+Observability read-only mencakup CPU, RAM, disk, SQLite, Nginx, backend, WebSocket, MT5 connector, certificate, dan heartbeat. Endpoint metrics/alerts serta halaman System Metrics/Alerts dilindungi permission dashboard, sedangkan alert lifecycle dapat dikirim ke Windows Event Log native tanpa registrasi service baru. Setup dan batas operasional tersedia di [runbook monitoring Windows](docs/deployment/windows-monitoring-alerting.md). Monitoring tidak mempunyai authority untuk connect MT5, memulai engine, mengirim order, restart service, atau menjalankan recovery.
+
 ## Status Milestone 7
 
 Tersedia seluruh fondasi Milestone 1–6 serta:

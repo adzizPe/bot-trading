@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\observability\eventlog.py
+# hypothesis_version: 6.151.9
+
+[256, 10901, 10902, 10903, 'ESCALATED', 'OPEN', 'RECOVERED', 'Windows', 'message', 'source']

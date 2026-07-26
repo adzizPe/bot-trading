@@ -204,6 +204,8 @@ export function mockApi() {
   vi.spyOn(api, 'me').mockResolvedValue(authUser)
   vi.spyOn(api, 'health').mockResolvedValue({ status: 'healthy', service: 'Trading Bot', version: '0.10.1' })
   vi.spyOn(api, 'healthFull').mockResolvedValue(fullHealth)
+  vi.spyOn(api, 'systemMetrics').mockResolvedValue({ status: 'HEALTHY', observed_at: '2026-07-25T10:00:00Z', cached: false, components: { database: { name: 'Database', state: 'HEALTHY', observations: [{ name: 'Latency', state: 'HEALTHY', value: 12, unit: 'ms', detail: 'Round-trip latency' }] } } })
+  vi.spyOn(api, 'alerts').mockResolvedValue([{ alert_id: 'alert-1', category: 'CONNECTIVITY', severity: 'WARNING', state: 'OPEN', first_observed_at: '2026-07-25T09:55:00Z', last_observed_at: '2026-07-25T10:00:00Z', occurrences: 2, active: true, delivery_state: 'DELIVERED' }])
   vi.spyOn(api, 'safetyStatus').mockResolvedValue(safetyStatus)
   vi.spyOn(api, 'safetyEmergencyStop').mockResolvedValue({
     ...safetyStatus,

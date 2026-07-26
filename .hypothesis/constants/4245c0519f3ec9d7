@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\observability\models.py
+# hypothesis_version: 6.151.9
+
+[128, 'AlertRecord', 'CERTIFICATE', 'CPU', 'CRITICAL', 'DELIVERED', 'DISK', 'HEALTHY', 'HEARTBEAT', 'MEMORY', 'MT5', 'NOT_REQUIRED', 'SQLITE', 'UNKNOWN', 'WARNING', 'WEBSOCKET', 'after', 'alert_id', 'components', 'cpu.percent', 'detail', 'disk.used_percent', 'first_observed_at', 'forbid', 'json', 'last_observed_at', 'memory.used_percent', 'mt5.connected', 'name', 'observations', 'observed_at', 'sqlite.latency_ms', 'state', 'unit', 'value']

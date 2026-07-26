@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\observability\alerts.py
+# hypothesis_version: 6.151.9
+
+[256, 1024, 'ESCALATED', 'OPEN', 'RECOVERED', 'active', 'certificate', 'cpu', 'delivery_state', 'disk', 'heartbeat', 'last_observed_at', 'memory', 'mt5', 'occurrences', 'severity', 'sqlite', 'state', 'websocket']

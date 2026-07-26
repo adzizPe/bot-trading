@@ -83,6 +83,8 @@ def test_only_minimal_health_is_public_and_contract_is_exact() -> None:
             "status": "healthy", "service": settings.app_name,
             "version": "0.10.2",
         }
+        liveness = client.get("/api/v1/health/liveness")
+        assert liveness.status_code == 401
         assert client.get("/api/v1/health/full").status_code == 401
         assert client.get("/api/v1/market/timeframes").status_code == 401
         assert client.get("/docs").status_code == 404
