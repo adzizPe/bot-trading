@@ -389,7 +389,7 @@ def create_app(
         from app.testing_mode import SyntheticSignalService
 
         application.state.testing_signal_service = SyntheticSignalService(
-            signal_repository, settings.mt5_symbol
+            signal_repository, settings.mt5_symbol, manager.risk_snapshot
         )
         application.include_router(
             testing_mode_router, prefix=settings.api_v1_prefix

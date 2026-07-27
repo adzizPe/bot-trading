@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\testing_mode\service.py
+# hypothesis_version: 6.151.9
+
+[2.0, 100.0, 3000.0, 100, 'BUY', 'CANDIDATE', 'H1/M15/M5', 'SELL', 'ask', 'atr', 'bid', 'candle_time', 'confidence_score', 'created_at', 'direction', 'factor', 'name', 'passed', 'points', 'reasons', 'rejection_reasons', 'score_factors', 'signal_id', 'status', 'strategy_name', 'symbol', 'tick', 'timeframe', 'weight']
