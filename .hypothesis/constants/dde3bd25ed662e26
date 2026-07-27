@@ -1,0 +1,4 @@
+# file: D:\bot-trading\backend\app\api\routes\auth.py
+# hypothesis_version: 6.151.9
+
+[201, 401, 403, 404, 409, '/', '/auth', '/login', '/logout', '/me', '/refresh', '/users', 'Invalid credentials', 'Logged out', 'Session invalidated', 'X-CSRF-Token', 'access_token', 'admin invalidation', 'authentication', 'csrf_token', 'httponly', 'logout', 'path', 'refresh_token', 'samesite', 'secure', 'strict']

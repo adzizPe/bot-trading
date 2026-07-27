@@ -31,6 +31,24 @@ describe('cookie-authenticated API client', () => {
     expect(sessionStorage.getItem('refresh_token')).toBeNull()
   })
 
+  it('sends the readable CSRF cookie on every mutation without changing GET requests', async () => {
+    document.cookie = 'csrf_token=csrf-regression; path=/'
+    vi.mocked(fetch).mockImplementation(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }))
+
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+      await request<{ ok: boolean }>('/mutation', { method, body: '{}' })
+    }
+    await request<{ ok: boolean }>('/read')
+
+    const calls = vi.mocked(fetch).mock.calls
+    for (const [, options] of calls.slice(0, 4)) {
+      expect(new Headers(options?.headers).get('X-CSRF-Token')).toBe('csrf-regression')
+    }
+    const [, getOptions] = calls[4]
+    expect(getOptions?.method).toBe('GET')
+    expect(new Headers(getOptions?.headers).has('X-CSRF-Token')).toBe(false)
+  })
+
   it('loads the current user and ignores the successful logout JSON body', async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(new Response(JSON.stringify(authUser), { status: 200 }))

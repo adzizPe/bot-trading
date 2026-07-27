@@ -29,8 +29,7 @@ def _set_auth_cookies(response: Response, request: Request, pair: TokenPair) -> 
                         max_age=settings.auth_refresh_ttl_seconds, **common)
     response.set_cookie("csrf_token", pair.csrf_token, httponly=False,
                         secure=settings.auth_cookie_secure, samesite="strict",
-                        path=settings.api_v1_prefix,
-                        max_age=settings.auth_refresh_ttl_seconds)
+                        path="/", max_age=settings.auth_refresh_ttl_seconds)
 
 
 def _auth_response(pair: TokenPair) -> AuthResponse:
@@ -99,8 +98,9 @@ async def refresh(
 async def logout(request: Request, response: Response,
                  principal: Annotated[Principal, Depends(current_principal)]) -> MessageResponse:
     await request.app.state.auth_service.revoke_session(principal.session_id, "logout")
-    for name in ("access_token", "refresh_token", "csrf_token"):
+    for name in ("access_token", "refresh_token"):
         response.delete_cookie(name, path=request.app.state.settings.api_v1_prefix)
+    response.delete_cookie("csrf_token", path="/")
     return MessageResponse(detail="Logged out")
 
 

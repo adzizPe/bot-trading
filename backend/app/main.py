@@ -374,6 +374,26 @@ def create_app(
         return response
 
     application.include_router(api_router, prefix=settings.api_v1_prefix)
+    environment = settings.app_env.casefold()
+    if environment == "production":
+        from app.testing_mode import (
+            ProductionDemoTestingGuard,
+            SyntheticSignalPolicy,
+        )
+
+        application.state.demo_service = ProductionDemoTestingGuard(
+            demo, SyntheticSignalPolicy(SessionFactory)
+        )
+    elif environment == "development":
+        from app.api.routes.testing_mode import router as testing_mode_router
+        from app.testing_mode import SyntheticSignalService
+
+        application.state.testing_signal_service = SyntheticSignalService(
+            signal_repository, settings.mt5_symbol
+        )
+        application.include_router(
+            testing_mode_router, prefix=settings.api_v1_prefix
+        )
     return application
 
 

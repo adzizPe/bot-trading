@@ -176,12 +176,19 @@ async def test_login_cookies_csrf_refresh_rotation_and_logout(
         assert "user" not in login_body
         cookies = login.headers.get_list("set-cookie")
         assert all("SameSite=strict" in value for value in cookies)
-        assert "HttpOnly" in next(value for value in cookies
-                                  if value.startswith("access_token="))
-        assert "HttpOnly" in next(value for value in cookies
-                                  if value.startswith("refresh_token="))
-        assert "HttpOnly" not in next(value for value in cookies
-                                      if value.startswith("csrf_token="))
+        access_cookie = next(value for value in cookies
+                             if value.startswith("access_token="))
+        refresh_cookie = next(value for value in cookies
+                              if value.startswith("refresh_token="))
+        csrf_cookie = next(value for value in cookies
+                           if value.startswith("csrf_token="))
+        assert "HttpOnly" in access_cookie
+        assert "HttpOnly" in refresh_cookie
+        assert "HttpOnly" not in csrf_cookie
+        assert "Path=/api/v1" in access_cookie
+        assert "Path=/api/v1" in refresh_cookie
+        assert "Path=/;" in csrf_cookie
+        assert "Path=/api/v1" not in csrf_cookie
         old_refresh = client.cookies["refresh_token"]
         old_csrf = client.cookies["csrf_token"]
         me = await client.get("/api/v1/auth/me")
